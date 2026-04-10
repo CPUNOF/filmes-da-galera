@@ -8,7 +8,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { collection, addDoc } from "firebase/firestore";
 import toast from "react-hot-toast";
 
-export const dynamic = "force-dynamic";
+
 export const revalidate = 0;
 
 const MAPA_GENEROS = {
