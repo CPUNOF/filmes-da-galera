@@ -5,9 +5,8 @@ import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, addDoc } from "firebase/firestore";
+import { collection, addDoc, query, where, getDocs } from "firebase/firestore";
 import toast from "react-hot-toast";
-
 
 const MAPA_GENEROS = {
   28: "Ação", 12: "Aventura", 16: "Animação", 35: "Comédia", 80: "Crime", 
@@ -16,8 +15,6 @@ const MAPA_GENEROS = {
   10749: "Romance", 878: "Ficção Científica", 10770: "Cinema TV", 
   53: "Suspense", 10752: "Guerra", 37: "Faroeste"
 };
-
-
 
 export default function NovoFilme() {
   const [usuario, setUsuario] = useState(null);
@@ -33,13 +30,25 @@ export default function NovoFilme() {
     return () => unsubscribe();
   }, []);
 
-  const pesquisarFilme = async (e) => {
-    e.preventDefault();
-    if (!busca) return;
-    
+  // 🪄 A MÁGICA DO AUTOCOMPLETE AQUI:
+  useEffect(() => {
+    // Cria um temporizador. Só busca se o usuário parar de digitar por 600ms
+    const timer = setTimeout(() => {
+      if (busca.trim().length > 2) {
+        realizarBuscaAuto(busca);
+      } else if (busca.trim().length === 0) {
+        setResultados([]); // Limpa a tela se o usuário apagar tudo
+      }
+    }, 600); 
+
+    // Limpa o timer se o usuário voltar a digitar antes dos 600ms
+    return () => clearTimeout(timer);
+  }, [busca]);
+
+  const realizarBuscaAuto = async (termo) => {
     setBuscando(true);
     try {
-      const res = await fetch(`/api/tmdb?q=${busca}`);
+      const res = await fetch(`/api/tmdb?q=${termo}`);
       const dados = await res.json();
       setResultados(dados.filter(filme => filme.poster_path)); 
     } catch (error) {
@@ -56,9 +65,23 @@ export default function NovoFilme() {
     }
 
     setSalvando(true);
-    const t = toast.loading("Preparando os rolos de filme...");
+    const t = toast.loading("Checando o acervo...");
 
     try {
+      // 🛑 A TRAVA ANTI-DUPLICATAS:
+      const q = query(collection(db, "filmes"), where("tmdbId", "==", filmeTMDB.id));
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        toast.dismiss(t);
+        toast.error("Ops! A galera já indicou ou assistiu esse filme.");
+        setSalvando(false);
+        return; // Mata a função aqui e não salva duplicado!
+      }
+
+      // Se passou da trava, continua normal:
+      toast.loading("Preparando os rolos de filme...", { id: t }); // Atualiza o texto do toast
+      
       const resTrailer = await fetch(`/api/tmdb/trailer?id=${filmeTMDB.id}`);
       const { key } = await resTrailer.json();
       const nomesGeneros = filmeTMDB.genre_ids.map(id => MAPA_GENEROS[id]).filter(Boolean);
@@ -73,6 +96,7 @@ export default function NovoFilme() {
         dataLancamento: filmeTMDB.release_date,
         status: "sugerido",
         notaGeral: 0,
+        notaTMDB: filmeTMDB.vote_average ? filmeTMDB.vote_average.toFixed(1) : "N/A",
         quantidadeVotos: 0,
         sugeridoPor: {
           nome: usuario.displayName,
@@ -102,13 +126,11 @@ export default function NovoFilme() {
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-white pb-20 overflow-x-hidden relative">
       
-      {/* 🔴 Luz ambiente vermelha desfocada no fundo para dar clima de cinema */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-2xl h-[400px] bg-red-900/20 blur-[120px] pointer-events-none z-0"></div>
 
       <div className="max-w-[1400px] mx-auto px-6 pt-6 sm:pt-10 relative z-10">
         <Navbar />
 
-        {/* 🎬 HEADER DE BUSCA */}
         <div className="max-w-3xl mx-auto mt-16 sm:mt-24 text-center">
           <h1 className="text-4xl sm:text-6xl font-black tracking-tighter mb-4 bg-gradient-to-r from-white to-gray-500 bg-clip-text text-transparent">
             INDICAR FILME
@@ -117,7 +139,8 @@ export default function NovoFilme() {
             Pesquise no acervo mundial e jogue sua sugestão na nossa fila.
           </p>
           
-          <form onSubmit={pesquisarFilme} className="relative flex items-center mb-16 shadow-2xl">
+          {/* Tirei o onSubmit, pois a busca agora é automática */}
+          <div className="relative flex items-center mb-16 shadow-2xl">
             <input 
               type="text" 
               value={busca}
@@ -125,17 +148,13 @@ export default function NovoFilme() {
               className="w-full bg-[#141414] border border-white/10 rounded-2xl py-5 pl-6 pr-32 text-white focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all text-lg font-medium shadow-inner"
               placeholder="Digite o nome do filme (ex: O Telefone Preto)..."
             />
-            <button 
-              type="submit" 
-              disabled={buscando}
-              className="absolute right-2 top-2 bottom-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 disabled:text-gray-400 text-white font-black px-6 rounded-xl text-xs uppercase tracking-widest transition-all flex items-center justify-center min-w-[120px]"
-            >
-              {buscando ? "Buscando..." : "Pesquisar"}
-            </button>
-          </form>
+            {/* O botão agora serve apenas como um indicador visual elegante */}
+            <div className="absolute right-2 top-2 bottom-2 bg-white/5 border border-white/10 text-white/50 font-black px-6 rounded-xl text-xs uppercase tracking-widest flex items-center justify-center min-w-[120px]">
+              {buscando ? "Buscando..." : "🔎"}
+            </div>
+          </div>
         </div>
 
-        {/* 🍿 RESULTADOS DA BUSCA */}
         {resultados.length > 0 && (
           <div className="max-w-6xl mx-auto border-t border-white/5 pt-12 animate-fade-in">
             <h3 className="text-xl font-bold mb-8 flex items-center gap-3">
@@ -156,7 +175,6 @@ export default function NovoFilme() {
                     alt={filme.title}
                   />
                   
-                  {/* Overlay interativo que sobe quando passa o mouse */}
                   <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
                     <h4 className="font-black text-white text-sm leading-tight mb-1">
                       {filme.title}

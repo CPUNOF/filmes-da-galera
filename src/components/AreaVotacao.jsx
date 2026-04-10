@@ -1,104 +1,181 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { auth, db } from "../lib/firebase";
+import { db, auth } from "@/lib/firebase";
+import { doc, getDoc, setDoc, updateDoc, collection, getDocs } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, setDoc, collection, getDocs, updateDoc, getDoc } from "firebase/firestore"; // Adicionamos o getDoc aqui
 import toast from "react-hot-toast";
 
+// Função para recalcular a média (Mantida para garantir a integridade do dado)
+async function calcMedia(filmeId) {
+  const votosRef = collection(db, `filmes/${filmeId}/votos`);
+  const votosSnap = await getDocs(votosRef);
+  const totalVotos = votosSnap.size;
+  if (totalVotos === 0) return 0;
+  let soma = 0;
+  votosSnap.forEach(doc => soma += Number(doc.data().nota));
+  return (soma / totalVotos).toFixed(1);
+}
+
 export default function AreaVotacao({ filmeId }) {
-  const [usuario, setUsuario] = useState(null);
-  const [nota, setNota] = useState(10);
-  const [jaVotou, setJaVotou] = useState(false); // Sabe se é voto novo ou edição
-  const [carregando, setCarregando] = useState(false);
+  const [user, setUser] = useState(null);
+  const [novaNota, setNovaNota] = useState(null); // Nota selecionada localmente
+  const [votoUsuario, setVotoUsuario] = useState(null); // Voto salvo no DB
+  const [salvando, setSalvando] = useState(false);
+  
+  // 🪄 ESTADO PARA O ÍCONE DE FEEDBACK ANIMADO
+  const [feedbackIcon, setFeedbackIcon] = useState(null); // 'trophy', 'poop', null
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => setUsuario(user));
-    return () => unsubscribe();
-  }, []);
-
-  // Novo: Assim que descobrir quem é o usuário, vai no banco ver se ele já votou nesse filme
-  useEffect(() => {
-    async function buscarVotoAnterior() {
-      if (!usuario) return;
-      const votoRef = doc(db, "filmes", filmeId, "votos", usuario.uid);
-      const votoSnap = await getDoc(votoRef);
-      
-      if (votoSnap.exists()) {
-        setNota(votoSnap.data().nota); // Pré-seleciona a nota que ele tinha dado
-        setJaVotou(true); // Muda o botão para "Atualizar"
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        // Busca o voto existente do usuário
+        const votoRef = doc(db, `filmes/${filmeId}/votos/${currentUser.uid}`);
+        getDoc(votoRef).then(snap => {
+          if (snap.exists()) {
+            setVotoUsuario(Number(snap.data().nota));
+            setNovaNota(Number(snap.data().nota)); // Pré-seleciona a nota salva
+          }
+        });
       }
+    });
+    return () => unsubscribe();
+  }, [filmeId]);
+
+  const handleVotar = async () => {
+    if (!user) {
+      toast.error("Você precisa estar logado para votar!");
+      return;
     }
-    buscarVotoAnterior();
-  }, [usuario, filmeId]);
+    if (novaNota === null) {
+      toast.error("Selecione uma nota antes de votar!");
+      return;
+    }
+    if (novaNota === votoUsuario) {
+      toast("Sua nota já é essa.", { icon: '🤔' });
+      return;
+    }
 
-  const registrarVoto = async () => {
-    if (!usuario) return;
-    setCarregando(true);
-    
+    setSalvando(true);
+    const votoRef = doc(db, `filmes/${filmeId}/votos/${user.uid}`);
     try {
-      await setDoc(doc(db, "filmes", filmeId, "votos", usuario.uid), {
-        nota: Number(nota),
-        nome: usuario.displayName
+      // Salva ou Atualiza o voto
+      await setDoc(votoRef, {
+        nota: novaNota,
+        dataVoto: new Date(),
+        usuarioNome: user.displayName,
+        usuarioFoto: user.photoURL
       });
 
-      const votosRef = collection(db, "filmes", filmeId, "votos");
-      const votosSnap = await getDocs(votosRef);
+      // Recalcula a média geral do filme
+      const media = await calcMedia(filmeId);
+      await updateDoc(doc(db, "filmes", filmeId), { notaGeral: media });
+
+      setVotoUsuario(novaNota); // Atualiza o estado do voto salvo
+      toast.success("Voto computado!");
+
+      // 🪄 ACIONA A ANIMAÇÃO CIRÚRGICA DE FEEDBACK
+      if (novaNota >= 9) {
+        setFeedbackIcon('trophy');
+      } else if (novaNota <= 5) {
+        setFeedbackIcon('poop');
+      }
       
-      let soma = 0;
-      votosSnap.forEach(doc => { soma += doc.data().nota; });
-      const novaMedia = (soma / votosSnap.size).toFixed(1); 
+      // Remove o ícone após 3 segundos
+      setTimeout(() => setFeedbackIcon(null), 3000);
 
-      await updateDoc(doc(db, "filmes", filmeId), {
-        notaGeral: Number(novaMedia),
-        quantidadeVotos: votosSnap.size
-      });
-
-      setJaVotou(true);
-      toast.success(jaVotou ? "Voto atualizado com sucesso!" : "Voto registrado com sucesso!");
-      window.location.reload(); // Recarrega a página para mostrar a nova média atualizada na hora!
     } catch (error) {
-      console.error("Erro ao votar:", error);
-      toast.error("Putz, deu um erro ao registrar o voto.");
+      console.error(error);
+      toast.error("Erro ao salvar voto.");
     } finally {
-      setCarregando(false);
+      setSalvando(false);
     }
   };
 
-  if (!usuario) {
-    return (
-      <div className="bg-gray-900 p-6 rounded-lg border border-gray-700 mt-8">
-        <h3 className="text-lg font-bold mb-2">Sua Avaliação</h3>
-        <p className="text-gray-400 text-sm">Faça login no topo da página para dar sua nota.</p>
-      </div>
-    );
-  }
+  const notas = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
   return (
-    <div className="bg-gray-900 p-6 rounded-lg border border-gray-700 mt-8">
-      <h3 className="text-lg font-bold mb-4">
-        {jaVotou ? "Você já avaliou este filme" : "Sua Avaliação"}
-      </h3>
-      
-      <div className="flex gap-4 items-center">
-        <select
-          value={nota}
-          onChange={(e) => setNota(e.target.value)}
-          className="bg-gray-800 text-white p-3 rounded-md border border-gray-600 focus:outline-none focus:border-red-500 font-bold"
-        >
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
-            <option key={num} value={num}>{num} Estrelas</option>
-          ))}
-        </select>
+    <>
+      <style>{`
+        /* 🪄 ANIMAÇÕES CIRÚRGICAS FDG PREMIUM */
+        @keyframes popAndGlow {
+          0% { transform: translate(-50%, -50%) scale(0) rotate(-20deg); opacity: 0; }
+          60% { transform: translate(-50%, -50%) scale(1.3) rotate(5deg); opacity: 1; }
+          100% { transform: translate(-50%, -50%) scale(1) rotate(0deg); opacity: 1; filter: drop-shadow(0 0 20px rgba(234, 179, 8, 0.7)); }
+        }
+        @keyframes poopSpin {
+          0% { transform: translate(-50%, -50%) scale(0) rotate(0deg); opacity: 0; }
+          50% { transform: translate(-50%, -50%) scale(1.2) rotate(180deg); opacity: 1; }
+          100% { transform: translate(-50%, -50%) scale(1) rotate(360deg); opacity: 1; }
+        }
         
-        <button 
-          onClick={registrarVoto} 
-          disabled={carregando}
-          className={`${jaVotou ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-600 hover:bg-red-700'} text-white font-black py-4 px-6 rounded-xl transition-all w-full text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-red-600/20 mt-4`}
-        >
-          {carregando ? "Salvando..." : (jaVotou ? "Atualizar Voto" : "Confirmar Voto")}
-        </button>
+        .feedback-overlay {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          z-index: 50;
+          pointer-events: none;
+        }
+        .icon-trophy {
+          font-size: 100px;
+          animation: popAndGlow 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+        .icon-poop {
+          font-size: 80px;
+          animation: poopSpin 1s ease-out forwards;
+        }
+      `}</style>
+
+      {/* Interface de Votos Estilizada */}
+      <div className="bg-black/40 p-6 rounded-2xl border border-white/5 shadow-inner relative overflow-hidden min-h-[220px]">
+        
+        {/* 🪄 CONDITIONAL RENDER DO ÍCONE DE FEEDBACK ANIMADO */}
+        {feedbackIcon && (
+          <div className="feedback-overlay">
+            {feedbackIcon === 'trophy' && <span className="icon-trophy">🏆</span>}
+            {feedbackIcon === 'poop' && <span className="icon-poop">💩</span>}
+          </div>
+        )}
+
+        {/* Conteúdo da Área de Votos (Borra se a animação estiver rodando) */}
+        <div className={`transition-all duration-300 ${feedbackIcon ? 'blur-sm opacity-30' : ''}`}>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 mb-5 text-center flex items-center justify-center gap-2">
+            <span className="w-6 h-[1px] bg-gray-800"></span> 
+            {user ? "Sua Avaliação Livre" : "Logue para Avaliar"}
+            <span className="w-6 h-[1px] bg-gray-800"></span>
+          </p>
+          
+          <div className="flex flex-wrap justify-center gap-2.5 mb-7">
+            {notas.map((num) => (
+              <button
+                key={num}
+                disabled={!user || salvando}
+                onClick={() => setNovaNota(num)}
+                className={`w-10 h-10 rounded-xl font-black text-xs transition-all duration-300 border cursor-pointer active:scale-90 ${
+                  novaNota === num 
+                    ? "bg-red-600 border-red-500 text-white shadow-[0_0_20px_rgba(220,38,38,0.5)] scale-110" 
+                    : "bg-white/5 border-white/10 text-gray-400 hover:border-white/30 hover:text-white hover:-translate-y-0.5"
+                } ${!user && 'opacity-30 cursor-not-allowed'}`}
+              >
+                {num}
+              </button>
+            ))}
+          </div>
+
+          <button 
+            disabled={!user || salvando || novaNota === votoUsuario || novaNota === null}
+            onClick={handleVotar}
+            className={`w-full font-black py-4 rounded-xl text-[10px] uppercase tracking-[0.3em] transition-all shadow-xl active:scale-95 flex items-center justify-center gap-2 ${
+              salvando
+                ? "bg-gray-800 text-gray-600 cursor-wait"
+                : "bg-white text-black hover:bg-red-600 hover:text-white cursor-pointer"
+            } ${(!user || novaNota === votoUsuario || novaNota === null) && 'bg-gray-800 text-gray-600 cursor-not-allowed'}`}
+          >
+            {salvando ? "Processando no Cofre..." : (votoUsuario ? "Atualizar Voto" : "Confirmar Voto")}
+          </button>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
