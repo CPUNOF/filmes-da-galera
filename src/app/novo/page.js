@@ -8,6 +8,8 @@ import { onAuthStateChanged } from "firebase/auth";
 import { collection, addDoc } from "firebase/firestore";
 import toast from "react-hot-toast";
 
+export const dynamic = "force-dynamic";
+
 const MAPA_GENEROS = {
   28: "Ação", 12: "Aventura", 16: "Animação", 35: "Comédia", 80: "Crime", 
   99: "Documentário", 18: "Drama", 10751: "Família", 14: "Fantasia", 
