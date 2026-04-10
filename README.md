@@ -1,6 +1,6 @@
 # 🎬 Filmes da Galera
 
-Bem-vindo ao **Filmes da Galera**, uma plataforma web de luxo desenvolvida para substituir planilhas chatas e centralizar a curadoria de filmes do nosso grupo. 
+Bem-vindo ao **Filmes da Galera**, uma plataforma web desenvolvida para substituir planilhas chatas e centralizar a curadoria de filmes do nosso grupo. 
 
 O objetivo deste projeto foi criar uma experiência de usuário (UX) e interface (UI) dignas de grandes serviços de streaming, combinando alta performance com design cinematográfico.
 
