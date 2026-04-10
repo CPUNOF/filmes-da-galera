@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# 🎬 Filmes da Galera
 
-## Getting Started
+Bem-vindo ao **Filmes da Galera**, uma plataforma web de luxo desenvolvida para substituir planilhas chatas e centralizar a curadoria de filmes do nosso grupo. 
 
-First, run the development server:
+O objetivo deste projeto foi criar uma experiência de usuário (UX) e interface (UI) dignas de grandes serviços de streaming, combinando alta performance com design cinematográfico.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+🔗 **Acesse o projeto online:** [https://filmes-da-galera.vercel.app/]
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+## ✨ Funcionalidades 
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- 🔐 **Autenticação Segura:** Login rápido e seguro utilizando contas do Google (Firebase Auth).
+- 🔍 **Busca no Acervo Mundial:** Integração direta com a API do TMDB para buscar pôsteres, sinopses, gêneros e trailers oficiais em alta qualidade.
+- 🗳️ **Sistema de Votação e Fila:** Os usuários podem indicar filmes ("Fila de Sugestões") e dar upvotes nos títulos que mais querem assistir.
+- 💬 **Mural de Resenhas:** Comentários em tempo real na página de cada filme para a galera debater se o filme é "Ótimo 🏆" ou "Lixo 🗑️".
+- 👑 **Painel de Controle (Admin):** Sistema de permissões onde apenas administradores podem definir a data da sessão, mover filmes da fila para os assistidos ou excluir títulos.
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## 🎨 Destaques de UI/UX 
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Este projeto não é apenas funcional; ele foi milimetricamente desenhado para ser bonito e responsivo:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Cinematic Backdrop:** Fundos dinâmicos e borrados gerados a partir da capa de cada filme.
+- **Glassmorphism:** Uso intensivo de desfoque de fundo (`backdrop-blur`) e transparências para um visual moderno.
+- **Loading Skeletons:** Telas de carregamento animadas (`animate-pulse`) que simulam a estrutura do site enquanto os dados são buscados, eliminando telas brancas e melhorando a percepção de velocidade.
+- **Toasts Customizados:** Zero `alerts` nativos do navegador. Todas as notificações e confirmações de ações usam o `react-hot-toast` com design escuro e interativo.
+- **Ultrawide & Mobile First:** Layout elástico (Grid de 12 colunas) que se adapta perfeitamente desde a tela de um celular até monitores ultrawide.
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 🛠️ Tecnologias Utilizadas
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **[Next.js](https://nextjs.org/)** (App Router, Server/Client Components)
+- **[React](https://reactjs.org/)**
+- **[Tailwind CSS](https://tailwindcss.com/)** (Estilização avançada)
+- **[Firebase](https://firebase.google.com/)** (Firestore Database & Authentication)
+- **[TMDB API](https://www.themoviedb.org/)** (Dados e Mídias dos Filmes)
+- **[React Hot Toast](https://react-hot-toast.com/)** (Notificações)
+- **[Vercel](https://vercel.com/)** (Deploy e Hospedagem)
+
+---
