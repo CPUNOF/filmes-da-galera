@@ -87,6 +87,7 @@ export default function NovoFilme() {
       toast.success("Sucesso! O filme foi para a fila de Sugestões.");
       
       setTimeout(() => {
+        router.refresh();
         router.push("/");
       }, 1500);
 
