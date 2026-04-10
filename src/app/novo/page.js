@@ -1,7 +1,5 @@
 "use client";
 
-export const dynamic = "force-dynamic";
-
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
@@ -10,8 +8,6 @@ import { onAuthStateChanged } from "firebase/auth";
 import { collection, addDoc } from "firebase/firestore";
 import toast from "react-hot-toast";
 
-
-export const revalidate = 0;
 
 const MAPA_GENEROS = {
   28: "Ação", 12: "Aventura", 16: "Animação", 35: "Comédia", 80: "Crime", 
