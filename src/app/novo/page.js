@@ -9,6 +9,7 @@ import { collection, addDoc } from "firebase/firestore";
 import toast from "react-hot-toast";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const MAPA_GENEROS = {
   28: "Ação", 12: "Aventura", 16: "Animação", 35: "Comédia", 80: "Crime", 
@@ -17,6 +18,8 @@ const MAPA_GENEROS = {
   10749: "Romance", 878: "Ficção Científica", 10770: "Cinema TV", 
   53: "Suspense", 10752: "Guerra", 37: "Faroeste"
 };
+
+
 
 export default function NovoFilme() {
   const [usuario, setUsuario] = useState(null);
@@ -87,8 +90,7 @@ export default function NovoFilme() {
       toast.success("Sucesso! O filme foi para a fila de Sugestões.");
       
       setTimeout(() => {
-        router.refresh();
-        router.push("/");
+        window.location.href = "/";
       }, 1500);
 
     } catch (error) {
