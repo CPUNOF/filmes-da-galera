@@ -64,18 +64,22 @@ export default function CartaoFilme({ filme, veredito, dataLabel, isSugestao }) 
             
             {/* 🪄 QUEM INDICOU O FILME (COM FOTO) */}
             {nomeIndicador && (
-              <div className="flex items-center gap-2 mb-3 bg-white/5 p-1.5 pr-3 rounded-lg border border-white/5 w-fit">
+              <Link 
+                href={`/perfil/${filme.sugeridoPor?.uid}`} 
+                className="flex items-center gap-2 mb-3 bg-white/5 hover:bg-white/10 p-1.5 pr-3 rounded-lg border border-white/5 w-fit transition-colors group/autor z-40 relative"
+                onClick={(e) => e.stopPropagation()} // Impede de abrir o filme ao clicar no autor
+              >
                 {fotoIndicador ? (
-                  <img src={fotoIndicador} alt={nomeIndicador} className="w-5 h-5 rounded-full object-cover border border-white/10 shadow-sm" />
+                  <img src={fotoIndicador} alt={nomeIndicador} className="w-5 h-5 rounded-full object-cover border border-white/10 shadow-sm group-hover/autor:border-blue-400 transition-colors" />
                 ) : (
-                  <div className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center border border-white/5">
+                  <div className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center border border-white/5 group-hover/autor:border-blue-400 transition-colors">
                     <span className="text-[8px]">👤</span>
                   </div>
                 )}
-                <p className="text-[7px] text-gray-400 uppercase tracking-widest leading-tight">
+                <p className="text-[7px] text-gray-400 uppercase tracking-widest leading-tight group-hover/autor:text-white transition-colors">
                   Indicação<br/><span className="text-gray-200 font-black text-[8px]">{nomeIndicador}</span>
                 </p>
-              </div>
+              </Link>
             )}
             
             <div className="flex flex-wrap items-center justify-between gap-y-2 mb-1">

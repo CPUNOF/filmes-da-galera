@@ -18,7 +18,7 @@ export default function Navbar() {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       
-      // 🪄 USER TRACKER: Salva quem logou no banco de dados automaticamente!
+      // USER TRACKER: Salva quem logou no banco de dados automaticamente!
       if (currentUser && currentUser.email) {
         try {
           await setDoc(doc(db, "usuarios", currentUser.email.toLowerCase()), {
@@ -97,9 +97,29 @@ export default function Navbar() {
 
         <div className="flex items-center pr-1 shrink-0">
           {user ? (
-            <div onClick={() => signOut(auth)} className="flex items-center gap-2 sm:gap-3 bg-white/5 p-1 sm:pr-4 rounded-full border border-white/5 hover:bg-red-600/10 cursor-pointer transition-all group">
-              <img src={user.photoURL} alt="Avatar" className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-white/10 group-hover:border-red-500 transition-colors object-cover" />
-              <span className="hidden sm:block text-[9px] font-black uppercase tracking-widest text-gray-400 group-hover:text-white">Sair</span>
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              
+              {/* 🪄 AGORA O BOTÃO COM A FOTO LEVA DIRETO PRO SEU PERFIL */}
+              <Link 
+                href={`/perfil/${user.uid}`} 
+                className="flex items-center gap-2 sm:gap-3 bg-white/5 p-1 sm:pr-4 rounded-full border border-white/5 hover:bg-white/10 cursor-pointer transition-all group"
+                title="Meu Perfil"
+              >
+                <img src={user.photoURL} alt="Avatar" className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-white/10 group-hover:border-white/40 transition-colors object-cover" />
+                <span className="hidden sm:block text-[9px] font-black uppercase tracking-widest text-gray-400 group-hover:text-white">Perfil</span>
+              </Link>
+
+              {/* 🪄 NOVO BOTÃO DE SAIR (Logout) - Ícone discreto e funcional */}
+              <button 
+                onClick={() => signOut(auth)} 
+                title="Sair da Conta"
+                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-red-900/20 border border-red-900/30 flex items-center justify-center hover:bg-red-600 transition-all text-red-500 hover:text-white group"
+              >
+                <svg className="w-3 h-3 sm:w-3.5 sm:h-3.5 group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+              </button>
+
             </div>
           ) : (
             <button onClick={handleLogin} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 sm:px-5 sm:py-2.5 rounded-full text-[8px] sm:text-[10px] font-black uppercase tracking-widest transition-all">Logar</button>
