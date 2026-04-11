@@ -9,7 +9,7 @@ import Navbar from "@/components/Navbar";
 import CartaoFilme from "@/components/CartaoFilme";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, getDocs, query, where, doc, getDoc, addDoc, onSnapshot } from "firebase/firestore";
+import { collection, getDocs, query, where, doc, getDoc, addDoc, onSnapshot, deleteDoc } from "firebase/firestore";
 import toast from "react-hot-toast";
 
 export default function PerfilUsuario({ params }) {
@@ -30,10 +30,14 @@ export default function PerfilUsuario({ params }) {
   const [filmeParaSugerir, setFilmeParaSugerir] = useState(null);
   const [salvandoSugestao, setSalvandoSugestao] = useState(false);
 
-  // ESTADOS DA BARRA DE BUSCA DE MEMBROS
+  // BARRA DE BUSCA DE MEMBROS
   const [buscaMembro, setBuscaMembro] = useState("");
   const [todosMembros, setTodosMembros] = useState([]);
   const [mostrarDropdown, setMostrarDropdown] = useState(false);
+
+  // 🪄 ESTADOS DO MODAL DE EXCLUSÃO
+  const [filmeParaExcluir, setFilmeParaExcluir] = useState(null);
+  const [excluindo, setExcluindo] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => setUsuarioLogado(user));
@@ -238,6 +242,26 @@ export default function PerfilUsuario({ params }) {
     }
   };
 
+  // 🪄 FUNÇÃO EXECUTADA AO CONFIRMAR NO POP-UP
+  const excluirIndicacaoConfirmada = async () => {
+    if (!filmeParaExcluir) return;
+    setExcluindo(true);
+    const t = toast.loading("Apagando a indicação...");
+    try {
+      await deleteDoc(doc(db, "filmes", filmeParaExcluir.id));
+      setIndicacoes(indicacoes.filter(f => f.id !== filmeParaExcluir.id));
+      toast.dismiss(t);
+      toast.success("Indicação removida com sucesso! 🗑️");
+      setFilmeParaExcluir(null);
+    } catch (error) {
+      console.error("Erro ao apagar:", error);
+      toast.dismiss(t);
+      toast.error("Erro ao remover a indicação.");
+    } finally {
+      setExcluindo(false);
+    }
+  };
+
   const filmesAntigosAssistidos = filmesComNotas.filter(f => f.dataLancamento && parseInt(f.dataLancamento.substring(0, 4)) < 1990).length;
   const filmesAntigosIndicados = indicacoes.filter(f => f.dataLancamento && parseInt(f.dataLancamento.substring(0, 4)) < 1990).length;
   const isCult = (filmesAntigosAssistidos + filmesAntigosIndicados) >= 3;
@@ -271,6 +295,43 @@ export default function PerfilUsuario({ params }) {
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
 
+      {/* 🪄 POP-UP CUSTOMIZADO DE EXCLUSÃO */}
+      {filmeParaExcluir && (
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-sm cursor-pointer" onClick={() => !excluindo && setFilmeParaExcluir(null)}></div>
+          <div className="relative bg-[#111111] border border-white/10 rounded-[2rem] p-6 sm:p-8 w-full max-w-sm shadow-2xl animate-fade-in-up text-center overflow-hidden">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-32 bg-red-600/20 blur-3xl rounded-full pointer-events-none"></div>
+            
+            <div className="w-16 h-16 bg-red-600/10 text-red-500 rounded-full flex items-center justify-center text-3xl mx-auto mb-4 border border-red-500/30 relative z-10">🗑️</div>
+            
+            <h3 className="text-xl font-black uppercase italic tracking-tighter mb-2 text-white relative z-10">Excluir Indicação?</h3>
+            <p className="text-[10px] sm:text-xs text-gray-400 uppercase tracking-widest font-bold mb-6 relative z-10">
+              Tem certeza que deseja apagar <br/>
+              <span className="text-white">"{filmeParaExcluir.titulo}"</span>?<br/>
+              <span className="text-red-500 text-[8px] sm:text-[9px]">Essa ação não pode ser desfeita.</span>
+            </p>
+            
+            <div className="flex gap-3 relative z-10">
+              <button 
+                onClick={() => setFilmeParaExcluir(null)} 
+                disabled={excluindo}
+                className="flex-1 bg-white/5 hover:bg-white/10 text-white font-black uppercase tracking-widest text-[10px] py-3 rounded-xl transition-colors border border-white/5"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={excluirIndicacaoConfirmada} 
+                disabled={excluindo} 
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-black uppercase tracking-widest text-[10px] py-3 rounded-xl transition-colors shadow-[0_0_15px_rgba(220,38,38,0.4)]"
+              >
+                {excluindo ? "Apagando..." : "Sim, Apagar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* POP-UP DO DIÁRIO */}
       {filmeParaSugerir && (
         <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 sm:p-6">
           <div className="absolute inset-0 bg-black/90 backdrop-blur-xl cursor-pointer" onClick={() => setFilmeParaSugerir(null)}></div>
@@ -370,7 +431,6 @@ export default function PerfilUsuario({ params }) {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 mt-8 sm:mt-10 relative z-50">
         
-        {/* 🪄 BARRA DE BUSCA COMPACTA E ELEGANTE */}
         <div className="max-w-5xl mx-auto mb-6 flex justify-end">
           <div className="relative w-full sm:w-[300px]">
             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm">🔎</span>
@@ -406,7 +466,7 @@ export default function PerfilUsuario({ params }) {
           </div>
         </div>
 
-        {/* 🪄 CARTEIRA SLIM E COMPACTA */}
+        {/* CARTEIRA SLIM E COMPACTA */}
         <div className="max-w-5xl mx-auto mb-8">
           <div className="bg-[#111111]/40 border border-white/5 rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row items-center gap-3 sm:gap-8 shadow-xl relative overflow-hidden group">
             <div className="absolute -right-10 -top-10 w-32 h-32 bg-yellow-600/5 blur-3xl rounded-full pointer-events-none"></div>
@@ -450,7 +510,27 @@ export default function PerfilUsuario({ params }) {
               <h2 className="text-xl sm:text-2xl font-black italic uppercase tracking-tighter mb-8 flex items-center gap-3"><span className="text-red-600">🎬</span> Trazidos por {usuarioPerfil.nome.split(" ")[0]}</h2>
               {indicacoes.length > 0 ? (
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-6">
-                  {indicacoes.map(filme => <CartaoFilme key={filme.id} filme={filme} isSugestao={filme.status === "sugerido"} />)}
+                  {indicacoes.map(filme => (
+                    <div key={filme.id} className="relative group">
+                      
+                      {/* 🪄 FIX: BOTÃO SÓ APARECE SE O FILME AINDA ESTIVER NA FILA ("sugerido") */}
+                      {usuarioLogado?.uid === usuarioPerfil?.uid && filme.status === "sugerido" && (
+                        <button 
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setFilmeParaExcluir({ id: filme.id, titulo: filme.titulo });
+                          }}
+                          className="absolute -top-3 -right-3 bg-red-600 hover:bg-red-500 text-white w-10 h-10 rounded-full flex flex-col items-center justify-center shadow-[0_0_20px_rgba(220,38,38,0.6)] border-2 border-[#0a0a0a] z-[60] transition-all hover:scale-110"
+                          title="Apagar Indicação"
+                        >
+                          <span className="text-sm">🗑️</span>
+                        </button>
+                      )}
+                      
+                      <CartaoFilme filme={filme} isSugestao={filme.status === "sugerido"} />
+                    </div>
+                  ))}
                 </div>
               ) : <div className="py-20 text-center border border-dashed border-white/5 rounded-3xl opacity-50 uppercase font-black text-[10px] tracking-widest">Nenhuma indicação ainda.</div>}
             </div>
@@ -530,6 +610,7 @@ export default function PerfilUsuario({ params }) {
             </div>
           )}
         </div>
+
       </div>
     </main>
   );
