@@ -7,14 +7,14 @@ import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import CartaoFilme from "@/components/CartaoFilme";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, getDocs, query, where, doc, getDoc } from "firebase/firestore";
 
 export default function PerfilUsuario({ params }) {
   const [usuarioPerfil, setUsuarioPerfil] = useState(null);
   const [indicacoes, setIndicacoes] = useState([]);
   const [upvoted, setUpvoted] = useState([]);
   const [comentarios, setComentarios] = useState([]);
-  const [filmesComNotas, setFilmesComNotas] = useState([]); // 🪄 NOVO: O Histórico de Votos do Usuário
+  const [filmesComNotas, setFilmesComNotas] = useState([]); 
   const [abaAtiva, setAbaAtiva] = useState("indicacoes"); 
   const [carregando, setCarregando] = useState(true);
 
@@ -25,65 +25,70 @@ export default function PerfilUsuario({ params }) {
         const uidUrl = resolvedParams?.id;
         if (!uidUrl) return;
 
+        // 1. Busca todos os filmes
         const snapFilmes = await getDocs(collection(db, "filmes"));
-        const todosFilmes = snapFilmes.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const todosFilmes = snapFilmes.docs.map(documento => ({ id: documento.id, ...documento.data() }));
 
-        // 1. Indicações (Filmes que ELE sugeriu)
+        // 2. Indicações (Filmes que ELE sugeriu)
         const userIndicacoes = todosFilmes.filter(f => f.sugeridoPor?.uid === uidUrl);
         setIndicacoes(userIndicacoes.sort((a, b) => new Date(b.dataCriacao || 0) - new Date(a.dataCriacao || 0)));
 
-        // 2. Fila de Votação (Filmes que ELE deu 🔥 Upvote)
+        // 3. Fila de Votação (Filmes que ELE deu 🔥 Upvote)
         const userUpvoted = todosFilmes.filter(f => f.status === "sugerido" && f.upvotes?.includes(uidUrl));
         setUpvoted(userUpvoted);
 
-        // 3. Comentários/Resenhas
+        // 4. Comentários/Resenhas
         const snapComentarios = await getDocs(collection(db, "comentarios"));
         const userComentarios = [];
-        snapComentarios.forEach(doc => {
-          const data = doc.data();
+        snapComentarios.forEach(documento => {
+          const data = documento.data();
           if (data.uid === uidUrl || data.usuarioUid === uidUrl) {
-            userComentarios.push({ id: doc.id, ...data });
+            userComentarios.push({ id: documento.id, ...data });
           }
         });
         setComentarios(userComentarios.sort((a, b) => (b.dataCriacao || 0) - (a.dataCriacao || 0)));
 
-        // 4. 🪄 A FUNÇÃO CAÇADORA DE NOTAS (Procura onde o usuário votou)
-        let votosCollection = [];
-        try {
-          const snapVotos = await getDocs(query(collection(db, "votos"), where("uid", "==", uidUrl)));
-          votosCollection = snapVotos.docs.map(d => ({ id: d.id, ...d.data() }));
-        } catch(e) {} // Ignora se não existir coleção global de votos
-
-        const filmesVotadosPeloUsuario = [];
-        todosFilmes.forEach(f => {
-          let notaExata = null;
-          // A) Checa se o voto tá salvo dentro do próprio filme (Array)
-          if (f.votos && Array.isArray(f.votos)) {
-            const votoNoArray = f.votos.find(v => v.uid === uidUrl);
-            if (votoNoArray) notaExata = votoNoArray.nota;
+        // 5. 🪄 A VERDADEIRA FUNÇÃO CAÇADORA DE NOTAS (Bate na porta da subcoleção)
+        const promessasDeVotos = todosFilmes.map(async (filme) => {
+          try {
+            // O caminho exato onde o teu AreaVotacao guarda os dados
+            const votoRef = doc(db, `filmes/${filme.id}/votos/${uidUrl}`);
+            const votoSnap = await getDoc(votoRef);
+            
+            if (votoSnap.exists()) {
+              return { ...filme, notaDoUsuario: Number(votoSnap.data().nota) };
+            }
+          } catch (e) {
+            // Ignora falhas isoladas
           }
-          // B) Checa se tá salvo numa coleção separada de votos
-          const votoNaCollection = votosCollection.find(v => v.filmeId === f.id);
-          if (votoNaCollection) notaExata = votoNaCollection.nota;
-
-          // Se achou a nota dele, guarda o filme e a nota!
-          if (notaExata !== null) {
-            filmesVotadosPeloUsuario.push({ ...f, notaDoUsuario: notaExata });
-          }
+          return null;
         });
+
+        // Espera que o sistema verifique todos os filmes simultaneamente
+        const resultadosVotos = await Promise.all(promessasDeVotos);
+        const filmesVotadosPeloUsuario = resultadosVotos.filter(f => f !== null);
         
-        // Ordena para mostrar as maiores notas primeiro (Os favoritos dele)
+        // Ordena para mostrar as maiores notas primeiro
         setFilmesComNotas(filmesVotadosPeloUsuario.sort((a, b) => b.notaDoUsuario - a.notaDoUsuario));
 
-        // 5. Resgata a Foto e Nome
+        // Resgata a Foto e Nome do Perfil
         let nome = "Cinéfilo Desconhecido";
         let foto = "https://via.placeholder.com/150";
         if (userIndicacoes.length > 0) {
           nome = userIndicacoes[0].sugeridoPor?.nome;
           foto = userIndicacoes[0].sugeridoPor?.foto;
         } else if (userComentarios.length > 0) {
-          nome = userComentarios[0].usuarioNome;
-          foto = userComentarios[0].usuarioFoto;
+          nome = userComentarios[0].autor || userComentarios[0].usuarioNome;
+          foto = userComentarios[0].foto || userComentarios[0].usuarioFoto;
+        } else {
+          // Fallback: tenta achar na coleção global de utilizadores
+          try {
+            const snapUser = await getDocs(query(collection(db, "usuarios"), where("uid", "==", uidUrl)));
+            if (!snapUser.empty) {
+              nome = snapUser.docs[0].data().nome;
+              foto = snapUser.docs[0].data().foto;
+            }
+          } catch(e) {}
         }
 
         setUsuarioPerfil({ uid: uidUrl, nome, foto });
@@ -98,19 +103,17 @@ export default function PerfilUsuario({ params }) {
   }, [params]);
 
   if (carregando) return <main className="min-h-screen bg-[#070707] text-white flex items-center justify-center font-black uppercase tracking-widest italic text-xs">Acessando Dossiê...</main>;
-  if (!usuarioPerfil) return <main className="min-h-screen bg-[#070707] text-white p-8 text-center uppercase font-black pt-40">Usuário não encontrado nos registros.</main>;
+  if (!usuarioPerfil) return <main className="min-h-screen bg-[#070707] text-white p-8 text-center uppercase font-black pt-40">Utilizador não encontrado nos registos.</main>;
 
   return (
     <main className="min-h-screen bg-[#070707] text-white pb-20 overflow-x-hidden font-sans">
       <Navbar />
 
-      {/* CSS PARA SCROLL NAS ABAS MOBILE */}
       <style>{`
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
 
-      {/* 🎬 HEADER DO PERFIL RESPONSIVO */}
       <div className="relative w-full pt-32 sm:pt-40 pb-10 sm:pb-12 bg-[#111111] border-b border-white/10 overflow-hidden">
         <div 
           className="absolute inset-0 z-0 bg-cover bg-center opacity-30 scale-105" 
@@ -120,7 +123,6 @@ export default function PerfilUsuario({ params }) {
 
         <div className="relative z-20 max-w-7xl mx-auto px-4 sm:px-6 w-full flex flex-col sm:flex-row items-center sm:items-end gap-4 sm:gap-8">
           
-          {/* Avatar Centralizado no Mobile, Alinhado no Desktop */}
           <div className="relative mt-4 sm:mt-0">
             <img 
               src={usuarioPerfil.foto} 
@@ -137,7 +139,6 @@ export default function PerfilUsuario({ params }) {
             </p>
           </div>
 
-          {/* ESTATÍSTICAS RÁPIDAS NO HEADER (Grid no mobile para não quebrar) */}
           <div className="flex gap-4 sm:gap-6 mt-4 sm:mt-0 bg-[#070707]/50 backdrop-blur-md p-3 sm:p-0 rounded-2xl sm:bg-transparent sm:backdrop-blur-none border border-white/5 sm:border-none w-full sm:w-auto justify-center">
             <div className="text-center px-2">
               <span className="block text-2xl sm:text-3xl font-black text-white leading-none mb-1">{indicacoes.length}</span>
@@ -157,7 +158,6 @@ export default function PerfilUsuario({ params }) {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 mt-8 sm:mt-12">
         
-        {/* 🪄 AS ABAS DE NAVEGAÇÃO: Agora com overflow horizontal para mobile */}
         <div className="flex overflow-x-auto hide-scrollbar bg-[#111111]/90 backdrop-blur-xl border border-white/5 p-1.5 sm:p-2 rounded-xl sm:rounded-full w-full max-w-3xl mx-auto shadow-lg relative gap-1 sm:gap-2 mb-10 sm:mb-16">
           <button 
             onClick={() => setAbaAtiva("indicacoes")} 
@@ -185,7 +185,6 @@ export default function PerfilUsuario({ params }) {
           </button>
         </div>
 
-        {/* 🎬 CONTEÚDO: INDICAÇÕES */}
         {abaAtiva === "indicacoes" && (
           <div className="animate-fade-in-up">
             <h2 className="text-xl sm:text-2xl font-black italic uppercase tracking-tighter mb-6 sm:mb-8 flex items-center gap-2 sm:gap-3">
@@ -198,13 +197,12 @@ export default function PerfilUsuario({ params }) {
             ) : (
               <div className="py-12 sm:py-16 text-center border border-dashed border-white/5 rounded-3xl">
                 <span className="text-3xl sm:text-4xl mb-4 block">👻</span>
-                <p className="text-gray-500 text-[9px] sm:text-[10px] font-black uppercase tracking-widest">Esse usuário ainda não indicou filmes.</p>
+                <p className="text-gray-500 text-[9px] sm:text-[10px] font-black uppercase tracking-widest">Esse utilizador ainda não indicou filmes.</p>
               </div>
             )}
           </div>
         )}
 
-        {/* 🔥 CONTEÚDO: FILA DE VOTOS */}
         {abaAtiva === "fila" && (
           <div className="animate-fade-in-up">
             <h2 className="text-xl sm:text-2xl font-black italic uppercase tracking-tighter mb-6 sm:mb-8 flex items-center gap-2 sm:gap-3">
@@ -223,7 +221,6 @@ export default function PerfilUsuario({ params }) {
           </div>
         )}
 
-        {/* ⭐ CONTEÚDO: HISTÓRICO DE NOTAS DO USUÁRIO (A MÁGICA ACONTECE AQUI) */}
         {abaAtiva === "notas" && (
           <div className="animate-fade-in-up">
             <h2 className="text-xl sm:text-2xl font-black italic uppercase tracking-tighter mb-6 sm:mb-8 flex items-center gap-2 sm:gap-3">
@@ -234,8 +231,6 @@ export default function PerfilUsuario({ params }) {
                 {filmesComNotas.map(filme => (
                   <div key={filme.id} className="relative group">
                     <CartaoFilme filme={filme} isSugestao={false} />
-                    
-                    {/* 🪄 O BADGE COM A NOTA EXATA DO USUÁRIO */}
                     <div className="absolute -top-3 -right-3 sm:-top-4 sm:-right-4 bg-yellow-500 text-[#070707] w-12 h-12 sm:w-14 sm:h-14 rounded-full flex flex-col items-center justify-center shadow-[0_10px_30px_rgba(234,179,8,0.5)] border-4 border-[#070707] z-50 transform group-hover:scale-110 transition-transform">
                       <span className="text-[8px] sm:text-[9px] font-black uppercase leading-none opacity-80">Nota</span>
                       <span className="text-lg sm:text-xl font-black leading-none">{filme.notaDoUsuario}</span>
@@ -246,13 +241,12 @@ export default function PerfilUsuario({ params }) {
             ) : (
               <div className="py-12 sm:py-16 text-center border border-dashed border-white/5 rounded-3xl">
                 <span className="text-3xl sm:text-4xl mb-4 block">😶</span>
-                <p className="text-gray-500 text-[9px] sm:text-[10px] font-black uppercase tracking-widest">O usuário ainda não deu nota para nenhum filme.</p>
+                <p className="text-gray-500 text-[9px] sm:text-[10px] font-black uppercase tracking-widest">O utilizador ainda não deu nota a nenhum filme.</p>
               </div>
             )}
           </div>
         )}
 
-        {/* 💬 CONTEÚDO: AVALIAÇÕES/RESENHAS */}
         {abaAtiva === "avaliacoes" && (
           <div className="animate-fade-in-up space-y-4 sm:space-y-6 max-w-4xl mx-auto">
             <h2 className="text-xl sm:text-2xl font-black italic uppercase tracking-tighter mb-6 sm:mb-8 flex items-center gap-2 sm:gap-3">
@@ -260,7 +254,7 @@ export default function PerfilUsuario({ params }) {
             </h2>
             {comentarios.length > 0 ? (
               comentarios.map(coment => {
-                const filme = filmesAvaliados.find(f => f.id === coment.filmeId);
+                const filme = filmesAvaliados.find(f => f.id === coment.filmeId) || filmesComNotas.find(f => f.id === coment.filmeId);
                 return (
                   <div key={coment.id} className="bg-[#111111] p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-white/5 shadow-xl flex flex-col sm:flex-row gap-4 sm:gap-6 hover:border-blue-500/30 transition-colors">
                     {filme && (
@@ -287,7 +281,7 @@ export default function PerfilUsuario({ params }) {
             ) : (
               <div className="py-12 sm:py-16 text-center border border-dashed border-white/5 rounded-3xl">
                 <span className="text-3xl sm:text-4xl mb-4 block">🤐</span>
-                <p className="text-gray-500 text-[9px] sm:text-[10px] font-black uppercase tracking-widest">O usuário ainda não escreveu nenhuma resenha.</p>
+                <p className="text-gray-500 text-[9px] sm:text-[10px] font-black uppercase tracking-widest">O utilizador ainda não escreveu nenhuma resenha.</p>
               </div>
             )}
           </div>
