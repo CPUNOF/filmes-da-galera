@@ -1,8 +1,9 @@
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
 import { useState, useEffect } from "react";
 import { db, auth } from "@/lib/firebase";
-import { doc, getDoc, setDoc, updateDoc, collection, getDocs } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc, collection, getDocs, onSnapshot } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import toast from "react-hot-toast";
 
@@ -22,24 +23,34 @@ export default function AreaVotacao({ filmeId }) {
   const [novaNota, setNovaNota] = useState(null); 
   const [votoUsuario, setVotoUsuario] = useState(null); 
   const [salvando, setSalvando] = useState(false);
+  const [votosGrupo, setVotosGrupo] = useState([]); // 🪄 GUARDA OS VOTOS DA GALERA
   
   // ESTADO PARA O ÍCONE DE FEEDBACK ANIMADO
   const [feedbackIcon, setFeedbackIcon] = useState(null); 
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (currentUser) {
-        const votoRef = doc(db, `filmes/${filmeId}/votos/${currentUser.uid}`);
-        getDoc(votoRef).then(snap => {
-          if (snap.exists()) {
-            setVotoUsuario(Number(snap.data().nota));
-            setNovaNota(Number(snap.data().nota)); 
-          }
-        });
+    });
+
+    // 🪄 BUSCA TODOS OS VOTOS DO FILME EM TEMPO REAL
+    const unsubscribeVotos = onSnapshot(collection(db, `filmes/${filmeId}/votos`), (snap) => {
+      const lista = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+      setVotosGrupo(lista);
+      
+      if (auth.currentUser) {
+        const meuVoto = lista.find(v => v.uid === auth.currentUser.uid);
+        if (meuVoto) {
+          setVotoUsuario(Number(meuVoto.nota));
+          setNovaNota(Number(meuVoto.nota));
+        }
       }
     });
-    return () => unsubscribe();
+
+    return () => {
+      unsubscribeAuth();
+      unsubscribeVotos();
+    };
   }, [filmeId]);
 
   const handleVotar = async () => {
@@ -78,11 +89,11 @@ export default function AreaVotacao({ filmeId }) {
 
       setVotoUsuario(novaNota); 
 
-      // 🪄 ANTI-FARM: Verifica quem é o dono do filme antes de dar o ponto
+      // ANTI-FARM: Verifica quem é o dono do filme antes de dar o ponto
       const filmeDocSnap = await getDoc(doc(db, "filmes", filmeId));
       const donoDoFilme = filmeDocSnap.exists() ? filmeDocSnap.data().sugeridoPor?.uid : null;
 
-      // 🪄 LÓGICA DO INGRESSO DOURADO: Só ganha pontos se for a primeira vez a avaliar este filme
+      // LÓGICA DO INGRESSO DOURADO: Só ganha pontos se for a primeira vez a avaliar este filme
       if (isNovoVoto) {
         if (donoDoFilme === user.uid) {
            toast("Avaliação Salva! (Seus filmes não dão pontos pro ingresso 😅)", { 
@@ -172,8 +183,7 @@ export default function AreaVotacao({ filmeId }) {
         }
       `}</style>
 
-      {/* Interface de Votos Estilizada */}
-      <div className="bg-black/40 p-6 rounded-2xl border border-white/5 shadow-inner relative overflow-hidden min-h-[220px]">
+      <div className="bg-black/40 p-6 rounded-2xl border border-white/5 shadow-inner relative overflow-hidden min-h-[220px] flex flex-col gap-6">
         
         {/* CONDITIONAL RENDER DO ÍCONE DE FEEDBACK ANIMADO */}
         {feedbackIcon && (
@@ -183,7 +193,6 @@ export default function AreaVotacao({ filmeId }) {
           </div>
         )}
 
-        {/* Conteúdo da Área de Votos (Borra se a animação estiver rodando) */}
         <div className={`transition-all duration-300 ${feedbackIcon ? 'blur-sm opacity-30' : ''}`}>
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 mb-5 text-center flex items-center justify-center gap-2">
             <span className="w-6 h-[1px] bg-gray-800"></span> 
@@ -220,6 +229,31 @@ export default function AreaVotacao({ filmeId }) {
             {salvando ? "A processar no Cofre..." : (votoUsuario ? "Atualizar Avaliação" : "Confirmar Avaliação")}
           </button>
         </div>
+
+        {/* 🪄 MURAL: O VEREDITO DA GALERA */}
+        <div className={`border-t border-white/5 pt-5 transition-all duration-300 ${feedbackIcon ? 'blur-sm opacity-30' : ''}`}>
+          <p className="text-[10px] font-black uppercase text-gray-500 text-center mb-4 tracking-[0.2em]">O Veredito da Galera</p>
+          
+          {votosGrupo.length === 0 ? (
+            <p className="text-center text-[9px] text-gray-600 uppercase font-black py-2">Ninguém avaliou ainda.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              {votosGrupo.map((v) => (
+                <div key={v.uid} className="flex items-center gap-3 bg-[#141414] p-2 sm:p-3 rounded-xl border border-white/5">
+                  <img src={v.usuarioFoto || "https://via.placeholder.com/150"} className="w-8 h-8 rounded-lg object-cover border border-white/10" alt="" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[9px] font-black text-white uppercase truncate">{v.usuarioNome}</p>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <span className="text-[10px]">⭐</span>
+                      <span className="text-[11px] font-black text-yellow-500">{v.nota}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
       </div>
     </>
   );

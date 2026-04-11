@@ -1,18 +1,19 @@
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
 import { useState, useEffect } from "react";
 import { auth, db } from "@/lib/firebase"; 
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, setDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, setDoc, onSnapshot } from "firebase/firestore";
 import toast from "react-hot-toast";
 
 export default function AreaUpvote({ filmeId }) {
   const [usuario, setUsuario] = useState(null);
   const [upvotes, setUpvotes] = useState([]);
+  const [votosDados, setVotosDados] = useState([]); // Guarda {uid, nome, foto}
   const [carregando, setCarregando] = useState(true);
   const [processando, setProcessando] = useState(false);
   
-  // 🪄 NOVO: ESTADO PARA SALVAR QUEM INDICOU O FILME
   const [donoFilme, setDonoFilme] = useState(null);
 
   useEffect(() => {
@@ -21,16 +22,17 @@ export default function AreaUpvote({ filmeId }) {
   }, []);
 
   useEffect(() => {
-    async function buscarVotos() {
-      const filmeSnap = await getDoc(doc(db, "filmes", filmeId));
+    const unsubscribe = onSnapshot(doc(db, "filmes", filmeId), (filmeSnap) => {
       if (filmeSnap.exists()) {
-        if (filmeSnap.data().upvotes) setUpvotes(filmeSnap.data().upvotes);
-        // 🪄 DESCOBRE QUEM É O DONO DO FILME
-        setDonoFilme(filmeSnap.data().sugeridoPor?.uid);
+        const data = filmeSnap.data();
+        if (data.upvotes) setUpvotes(data.upvotes);
+        if (data.votosInfo) setVotosDados(data.votosInfo);
+        setDonoFilme(data.sugeridoPor?.uid);
       }
       setCarregando(false);
-    }
-    buscarVotos();
+    });
+
+    return () => unsubscribe();
   }, [filmeId]);
 
   const alternarVoto = async () => {
@@ -47,10 +49,13 @@ export default function AreaUpvote({ filmeId }) {
     try {
       if (jaVotou) {
         // TIRA O VOTO
-        await updateDoc(filmeRef, { upvotes: arrayRemove(usuario.uid) });
-        setUpvotes(upvotes.filter(id => id !== usuario.uid));
+        const novaListaInfo = votosDados.filter(v => v.uid !== usuario.uid);
+        await updateDoc(filmeRef, { 
+          upvotes: arrayRemove(usuario.uid),
+          votosInfo: novaListaInfo
+        });
         
-        // 🪄 ANTI-FARM: Só tira o ponto se o filme NÃO for seu
+        // ANTI-FARM: Só tira o ponto se o filme NÃO for seu
         if (donoFilme !== usuario.uid) {
           const userSnap = await getDoc(userRef);
           if (userSnap.exists()) {
@@ -62,10 +67,14 @@ export default function AreaUpvote({ filmeId }) {
         }
       } else {
         // ADICIONA O VOTO
-        await updateDoc(filmeRef, { upvotes: arrayUnion(usuario.uid) });
-        setUpvotes([...upvotes, usuario.uid]);
+        const infoVoto = { uid: usuario.uid, foto: usuario.photoURL, nome: usuario.displayName };
+        
+        await updateDoc(filmeRef, { 
+          upvotes: arrayUnion(usuario.uid),
+          votosInfo: arrayUnion(infoVoto)
+        });
 
-        // 🪄 ANTI-FARM: Verifica se o filme é seu
+        // ANTI-FARM: Verifica se o filme é seu
         if (donoFilme === usuario.uid) {
           toast("Voto registrado! (Seus filmes não dão pontos 😅)", { 
             icon: '🔥', style: { background: '#111', color: '#fff', fontSize: '11px', border: '1px solid #333' } 
@@ -113,17 +122,14 @@ export default function AreaUpvote({ filmeId }) {
   return (
     <div className="bg-black/40 p-5 rounded-2xl border border-white/5 shadow-inner mt-8 w-full flex flex-col gap-4">
       
-      {/* 🪄 TEXTO SEMPRE NO TOPO E CENTRALIZADO */}
       <div className="text-center w-full">
         <h3 className="text-sm sm:text-base font-black uppercase italic tracking-tighter mb-1 text-white">Queremos assistir!</h3>
         <p className="text-gray-400 text-[9px] sm:text-[10px] font-bold uppercase tracking-widest">
-          Vote para este filme subir na fila.
+          Quem quer que este filme fure a fila:
         </p>
       </div>
 
-      {/* 🪄 BLOCO COMPACTO DE AÇÃO */}
       <div className="flex flex-row items-center justify-between gap-3 w-full bg-[#141414] p-2 rounded-xl border border-white/5">
-        
         <div className="text-center px-3 sm:px-4 border-r border-white/10 shrink-0">
           <span className="block text-xl sm:text-2xl font-black text-orange-500 leading-none mb-1">
             {upvotes.length}
@@ -143,11 +149,26 @@ export default function AreaUpvote({ filmeId }) {
           } ${(carregando || processando) ? 'opacity-50 cursor-wait' : ''}`}
         >
           {jaVotou ? (
-             <><span>✔️</span> Registrado</>
+             <><span>✔️</span> Já Votei</>
           ) : (
              <><span>🔥</span> Dar Voto</>
           )}
         </button>
+      </div>
+
+      {/* 🪄 MURAL DE QUEM VOTOU */}
+      <div className="pt-3 border-t border-white/5 flex flex-wrap justify-center gap-2">
+        {votosDados.map((v, i) => (
+          <div key={i} className="relative group/voto">
+            <img src={v.foto || "https://via.placeholder.com/150"} className="w-8 h-8 rounded-full border border-white/10 object-cover" alt="" />
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-black border border-white/10 text-white text-[8px] rounded opacity-0 group-hover/voto:opacity-100 whitespace-nowrap z-50 pointer-events-none transition-opacity">
+              {v.nome}
+            </div>
+          </div>
+        ))}
+        {votosDados.length === 0 && (
+          <p className="text-[8px] text-gray-600 uppercase font-black tracking-widest">Ninguém votou ainda.</p>
+        )}
       </div>
       
       {!usuario && <p className="text-red-400 text-[9px] uppercase tracking-widest font-bold mt-1 text-center w-full">Faça login para votar.</p>}
