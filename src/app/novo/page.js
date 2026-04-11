@@ -20,6 +20,18 @@ const MAPA_GENEROS = {
   53: "Suspense", 10752: "Guerra", 37: "Faroeste"
 };
 
+const LISTA_FILTROS_REC = [
+  { id: "todas", nome: "🔥 Para Você" },
+  { id: "28", nome: "Ação" },
+  { id: "27", nome: "Terror" },
+  { id: "53", nome: "Suspense" },
+  { id: "35", nome: "Comédia" },
+  { id: "878", nome: "Ficção Científica" },
+  { id: "18", nome: "Drama" },
+  { id: "14", nome: "Fantasia" },
+  { id: "12", nome: "Aventura" }
+];
+
 export default function NovoFilme() {
   const [usuario, setUsuario] = useState(null);
   const [busca, setBusca] = useState("");
@@ -32,13 +44,15 @@ export default function NovoFilme() {
   const [jaAssisti, setJaAssisti] = useState(false);
   const [minhaNota, setMinhaNota] = useState(0);
 
-  // 🪄 ESTADOS DO INGRESSO DOURADO E COOLDOWN
   const [meusIngressos, setMeusIngressos] = useState(0);
   const [ultimoUsoIngresso, setUltimoUsoIngresso] = useState(null);
   const [usarIngresso, setUsarIngresso] = useState(false);
 
+  const [filmesBonsAcervo, setFilmesBonsAcervo] = useState([]);
+  const [filtroRecAtivo, setFiltroRecAtivo] = useState(LISTA_FILTROS_REC[0]);
   const [recomendados, setRecomendados] = useState([]);
   const [motivoRecomendacao, setMotivoRecomendacao] = useState("");
+  const [carregandoRecs, setCarregandoRecs] = useState(true);
   
   const [acervoIds, setAcervoIds] = useState({}); 
 
@@ -49,62 +63,106 @@ export default function NovoFilme() {
     return () => unsubscribe();
   }, []);
 
-  // 🪄 TÚNEL DO INGRESSO EM TEMPO REAL E COOLDOWN
   useEffect(() => {
     if (!usuario) return;
-    
     const unsubscribe = onSnapshot(doc(db, "usuarios", usuario.email.toLowerCase()), (snap) => {
       if (snap.exists()) {
         setMeusIngressos(snap.data().ingressosDourados || 0);
         setUltimoUsoIngresso(snap.data().ultimoIngressoUsado || null);
       }
     });
-    
     return () => unsubscribe();
   }, [usuario]);
 
   useEffect(() => {
-    async function carregarInteligenciaEAcervo() {
+    async function carregarAcervo() {
       try {
         const snapFilmes = await getDocs(collection(db, "filmes"));
-        const filmesBons = [];
+        const bons = [];
         const idsGuardados = {}; 
         
         snapFilmes.forEach(doc => {
           const data = doc.data();
           idsGuardados[data.tmdbId] = data.status; 
           
-          if (data.status === "assistido" && Number(data.notaGeral) >= 7) {
-            filmesBons.push(data);
+          if (data.status === "assistido" && Number(data.notaGeral) > 6) {
+            bons.push(data);
           }
         });
 
         setAcervoIds(idsGuardados);
-
-        let url = `https://api.themoviedb.org/3/trending/movie/week?api_key=${TMDB_API_KEY}&language=pt-BR`;
-        let motivo = "Filmes em alta no mundo esta semana";
-
-        if (filmesBons.length > 0) {
-          const filmeBase = filmesBons[Math.floor(Math.random() * filmesBons.length)];
-          url = `https://api.themoviedb.org/3/movie/${filmeBase.tmdbId}/recommendations?api_key=${TMDB_API_KEY}&language=pt-BR`;
-          motivo = `Porque a galera curtiu "${filmeBase.titulo}"`;
-        }
-
-        const res = await fetch(url);
-        const data = await res.json();
+        setFilmesBonsAcervo(bons);
         
-        if (data.results && data.results.length > 0) {
-          setRecomendados(data.results.filter(f => f.poster_path).slice(0, 10));
-          setMotivoRecomendacao(motivo);
-        }
+        buscarRecomendacoesInteligentes(LISTA_FILTROS_REC[0], bons);
+
       } catch (error) {
-        console.error("Erro na recomendação:", error);
+        console.error("Erro ao carregar acervo:", error);
       }
     }
-    carregarInteligenciaEAcervo();
+    carregarAcervo();
   }, []);
 
+  const buscarRecomendacoesInteligentes = async (categoria, acervoBons) => {
+    setCarregandoRecs(true);
+    setRecomendados([]);
+    try {
+      let url = "";
+      let motivo = "";
+
+      if (categoria.id === "todas") {
+        if (acervoBons.length > 0) {
+          const filmeBase = acervoBons[Math.floor(Math.random() * acervoBons.length)];
+          url = `https://api.themoviedb.org/3/movie/${filmeBase.tmdbId}/recommendations?api_key=${TMDB_API_KEY}&language=pt-BR`;
+          motivo = `Continuações e Similares de "${filmeBase.titulo}" (Nota da Galera: ${filmeBase.notaGeral})`;
+        } else {
+          url = `https://api.themoviedb.org/3/trending/movie/week?api_key=${TMDB_API_KEY}&language=pt-BR`;
+          motivo = "Filmes em alta no mundo esta semana";
+        }
+      } else {
+        const filmesDaCategoria = acervoBons.filter(f => f.generos && f.generos.includes(categoria.nome));
+        
+        if (filmesDaCategoria.length > 0) {
+          const filmeBase = filmesDaCategoria[Math.floor(Math.random() * filmesDaCategoria.length)];
+          url = `https://api.themoviedb.org/3/movie/${filmeBase.tmdbId}/recommendations?api_key=${TMDB_API_KEY}&language=pt-BR`;
+          motivo = `Buscando continuações e obras do tipo "${filmeBase.titulo}"`;
+        } else {
+          url = `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_API_KEY}&with_genres=${categoria.id}&language=pt-BR&sort_by=popularity.desc`;
+          motivo = `Sucessos globais da categoria ${categoria.nome}`;
+        }
+      }
+
+      const res = await fetch(url);
+      const data = await res.json();
+      
+      if (data.results && data.results.length > 0) {
+        setRecomendados(data.results.filter(f => f.poster_path).slice(0, 15));
+        setMotivoRecomendacao(motivo);
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setCarregandoRecs(false);
+    }
+  };
+
+  // 🪄 PESQUISA POR CATEGORIA
+  const realizarBuscaCategoria = async (idCategoria) => {
+    setBuscando(true);
+    try {
+      const url = `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_API_KEY}&with_genres=${idCategoria}&language=pt-BR&sort_by=popularity.desc`;
+      const res = await fetch(url);
+      const dados = await res.json();
+      setResultados(dados.results.filter(filme => filme.poster_path)); 
+    } catch (error) {
+      toast.error("Erro ao buscar categorias.");
+    } finally {
+      setBuscando(false);
+    }
+  };
+
   useEffect(() => {
+    if (modoBusca === "categoria") return; // 🪄 Previne que a barra de texto interfira com as categorias
+    
     const timer = setTimeout(() => {
       if (busca.trim().length >= 3) { 
         realizarBuscaAuto(busca, modoBusca);
@@ -119,7 +177,6 @@ export default function NovoFilme() {
     setBuscando(true);
     try {
       let url = "";
-      
       if (modo === "titulo") {
         url = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(termo)}&language=pt-BR`;
       } else if (modo === "ano") {
@@ -132,7 +189,6 @@ export default function NovoFilme() {
       } else if (modo === "ator") {
         const resAtor = await fetch(`https://api.themoviedb.org/3/search/person?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(termo)}&language=pt-BR`);
         const dadosAtor = await resAtor.json();
-        
         if (dadosAtor.results && dadosAtor.results.length > 0) {
           const atorId = dadosAtor.results[0].id;
           url = `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_API_KEY}&with_cast=${atorId}&language=pt-BR&sort_by=popularity.desc`;
@@ -231,12 +287,11 @@ export default function NovoFilme() {
         filmeParaGrupo.notaTMDB = filmeSelecionado.vote_average ? filmeSelecionado.vote_average.toFixed(1) : "N/A";
         filmeParaGrupo.quantidadeVotos = 0;
         
-        // 🪄 APLICA O FURA-FILA, DESCONTA DA CARTEIRA E ATUALIZA A DATA DO COOLDOWN
         if (usarIngresso && meusIngressos > 0) {
           filmeParaGrupo.ingressoDourado = true;
           await updateDoc(doc(db, "usuarios", usuario.email.toLowerCase()), {
             ingressosDourados: meusIngressos - 1,
-            ultimoIngressoUsado: new Date().toISOString() // Salva o tempo para o Cooldown de 7 dias
+            ultimoIngressoUsado: new Date().toISOString()
           });
         }
         
@@ -261,16 +316,20 @@ export default function NovoFilme() {
           toast.success(jaAssisti ? "Indicado com Selo 🥇 e salvo no seu Diário! 🍿" : "Sucesso! Foi para a fila de Sugestões.");
         }
         
-        setTimeout(() => router.push("/sugestoes"), 2000);
+        // 🪄 NÃO REDIRECIONA MAIS! ATUALIZA O CARTÃO LOCALMENTE NA HORA.
+        setAcervoIds(prev => ({ ...prev, [filmeSelecionado.id]: "sugerido" }));
         
       } else {
         const filmePessoal = { ...novoFilmeBase, notaPessoal: minhaNota };
         await addDoc(collection(db, "filmes_pessoais"), filmePessoal);
         toast.dismiss(t);
         toast.success("Salvo no seu Diário Pessoal! 🍿");
-        setTimeout(() => router.push(`/perfil/${usuario.uid}`), 1500);
+        
+        // 🪄 NÃO REDIRECIONA MAIS! ATUALIZA O CARTÃO LOCALMENTE NA HORA.
+        setAcervoIds(prev => ({ ...prev, [filmeSelecionado.id]: "assistido" }));
       }
 
+      // Fecha o Modal
       setFilmeSelecionado(null);
       setJaAssisti(false);
       setMinhaNota(0);
@@ -286,7 +345,6 @@ export default function NovoFilme() {
 
   const statusNoGrupo = filmeSelecionado ? acervoIds[filmeSelecionado.id] : null;
 
-  // 🪄 CÁLCULO DE COOLDOWN DE 7 DIAS
   const agora = new Date();
   const dataUltimoUso = ultimoUsoIngresso ? new Date(ultimoUsoIngresso) : null;
   const diasPassados = dataUltimoUso ? (agora - dataUltimoUso) / (1000 * 60 * 60 * 24) : 7;
@@ -296,6 +354,11 @@ export default function NovoFilme() {
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-white pb-20 overflow-x-hidden relative font-sans">
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-2xl h-[400px] bg-red-900/20 blur-[120px] pointer-events-none z-0"></div>
+
+      <style>{`
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      `}</style>
 
       {filmeSelecionado && (
         <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 sm:p-6 opacity-100 transition-opacity">
@@ -337,7 +400,6 @@ export default function NovoFilme() {
                   </div>
                 )}
 
-                {/* 🪄 CAIXA DO INGRESSO DOURADO COM PROTEÇÃO DE COOLDOWN */}
                 {meusIngressos > 0 && !statusNoGrupo && (
                   <div className={`mb-4 border p-4 rounded-xl flex items-center gap-3 w-fit mx-auto sm:mx-0 transition-colors ${emCooldown ? 'bg-black/40 border-orange-500/30' : 'bg-yellow-900/20 border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.1)]'}`}>
                     {emCooldown ? (
@@ -413,7 +475,7 @@ export default function NovoFilme() {
             O que vamos assistir? Busque, filtre e sugira.
           </p>
 
-          <div className="flex justify-center gap-2 sm:gap-4 mb-6">
+          <div className="flex flex-wrap justify-center gap-2 sm:gap-4 mb-6">
             <button onClick={() => { setModoBusca("titulo"); setBusca(""); }} className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${modoBusca === "titulo" ? "bg-red-600 text-white shadow-lg shadow-red-600/30" : "bg-[#111111] text-gray-500 border border-white/10 hover:text-white"}`}>
               🎬 Título
             </button>
@@ -423,24 +485,46 @@ export default function NovoFilme() {
             <button onClick={() => { setModoBusca("ano"); setBusca(""); }} className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${modoBusca === "ano" ? "bg-yellow-600 text-black shadow-lg shadow-yellow-600/30" : "bg-[#111111] text-gray-500 border border-white/10 hover:text-white"}`}>
               📅 Ano
             </button>
+            {/* 🪄 NOVO BOTÃO DE CATEGORIA */}
+            <button onClick={() => { setModoBusca("categoria"); setBusca(""); }} className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${modoBusca === "categoria" ? "bg-purple-600 text-white shadow-lg shadow-purple-600/30" : "bg-[#111111] text-gray-500 border border-white/10 hover:text-white"}`}>
+              🏷️ Categoria
+            </button>
           </div>
           
-          <div className="relative flex items-center mb-16 shadow-2xl">
-            <input 
-              type="text" 
-              value={busca} 
-              onChange={(e) => setBusca(e.target.value)} 
-              className="w-full bg-[#141414] border border-white/10 rounded-2xl py-5 pl-6 pr-32 text-white focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all text-lg font-medium shadow-inner placeholder:text-gray-600" 
-              placeholder={
-                modoBusca === "titulo" ? "Ex: O Telefone Preto..." :
-                modoBusca === "ator" ? "Ex: Leonardo DiCaprio..." :
-                "Ex: 2023..."
-              } 
-            />
-            <div className="absolute right-2 top-2 bottom-2 bg-white/5 border border-white/10 text-white/50 font-black px-6 rounded-xl text-xs uppercase tracking-widest flex items-center justify-center min-w-[120px]">
-              {buscando ? "Buscando..." : "🔎"}
+          {/* 🪄 ALTERNA ENTRE BARRA DE TEXTO E GRELHA DE CATEGORIAS */}
+          {modoBusca === "categoria" ? (
+            <div className="flex flex-wrap justify-center gap-3 mb-16 max-w-4xl mx-auto animate-fade-in-up">
+              {Object.entries(MAPA_GENEROS).map(([id, nome]) => (
+                <button 
+                  key={id} 
+                  onClick={() => {
+                    setBusca(nome); 
+                    realizarBuscaCategoria(id);
+                  }}
+                  className={`px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border ${busca === nome ? 'bg-purple-600 text-white border-purple-500 shadow-[0_0_15px_rgba(147,51,234,0.4)] scale-105' : 'bg-[#141414] text-gray-400 border-white/10 hover:border-purple-500/50 hover:text-white'}`}
+                >
+                  {nome}
+                </button>
+              ))}
             </div>
-          </div>
+          ) : (
+            <div className="relative flex items-center mb-16 shadow-2xl animate-fade-in-up">
+              <input 
+                type="text" 
+                value={busca} 
+                onChange={(e) => setBusca(e.target.value)} 
+                className="w-full bg-[#141414] border border-white/10 rounded-2xl py-5 pl-6 pr-32 text-white focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all text-lg font-medium shadow-inner placeholder:text-gray-600" 
+                placeholder={
+                  modoBusca === "titulo" ? "Ex: O Telefone Preto..." :
+                  modoBusca === "ator" ? "Ex: Leonardo DiCaprio..." :
+                  "Ex: 2023..."
+                } 
+              />
+              <div className="absolute right-2 top-2 bottom-2 bg-white/5 border border-white/10 text-white/50 font-black px-6 rounded-xl text-xs uppercase tracking-widest flex items-center justify-center min-w-[120px]">
+                {buscando ? "Buscando..." : "🔎"}
+              </div>
+            </div>
+          )}
         </div>
 
         {resultados.length > 0 && (
@@ -475,39 +559,61 @@ export default function NovoFilme() {
           </div>
         )}
 
-        {resultados.length === 0 && recomendados.length > 0 && !buscando && busca.trim().length === 0 && (
+        {resultados.length === 0 && !buscando && busca.trim().length === 0 && (
           <div className="max-w-6xl mx-auto border-t border-white/5 pt-12 animate-fade-in mb-20">
-            <div className="mb-8">
-              <h3 className="text-xl font-bold flex items-center gap-3 mb-1">
-                <span className="w-2 h-8 bg-blue-600 rounded-full"></span> 💡 Recomendações Inteligentes
-              </h3>
-              <p className="text-[10px] text-gray-500 uppercase tracking-widest font-black">{motivoRecomendacao}</p>
+            <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-bold flex items-center gap-3 mb-1">
+                  <span className="w-2 h-8 bg-blue-600 rounded-full"></span> 💡 Recomendações Inteligentes
+                </h3>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest font-black">{motivoRecomendacao}</p>
+              </div>
+            </div>
+
+            {/* PÍLULAS DE FILTRO POR GÊNERO */}
+            <div className="flex gap-2 overflow-x-auto hide-scrollbar mb-8 snap-x pb-2 border-b border-white/5">
+              {LISTA_FILTROS_REC.map(gen => (
+                <button
+                  key={gen.id}
+                  onClick={() => {
+                    setFiltroRecAtivo(gen);
+                    buscarRecomendacoesInteligentes(gen, filmesBonsAcervo);
+                  }}
+                  className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest shrink-0 transition-all snap-start ${filtroRecAtivo.id === gen.id ? 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]' : 'bg-[#111111] border border-white/10 text-gray-500 hover:text-white hover:border-white/30'}`}
+                >
+                  {gen.nome}
+                </button>
+              ))}
             </div>
             
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-              {recomendados.map((filme) => {
-                const status = acervoIds[filme.id]; 
-                return (
-                  <div key={filme.id} onClick={() => selecionarFilme(filme)} className={`group relative bg-[#141414] rounded-2xl overflow-hidden shadow-xl border border-white/5 cursor-pointer transition-all aspect-[2/3] ${status ? 'opacity-40 grayscale hover:grayscale-0 hover:opacity-100 hover:border-blue-500/50' : 'hover:border-blue-500/50'}`}>
-                    
-                    {status && (
-                      <div className="absolute top-2 right-2 bg-black/90 backdrop-blur-md text-white px-2 py-1 rounded-md text-[8px] font-black uppercase tracking-widest border border-white/10 z-20">
-                        {status === "assistido" ? "👀 Já Assistido" : "⏳ Na Fila"}
-                      </div>
-                    )}
+            {carregandoRecs ? (
+              <div className="text-center py-20 text-gray-500 uppercase tracking-widest font-black text-xs">Analisando o gosto da galera...</div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                {recomendados.map((filme) => {
+                  const status = acervoIds[filme.id]; 
+                  return (
+                    <div key={filme.id} onClick={() => selecionarFilme(filme)} className={`group relative bg-[#141414] rounded-2xl overflow-hidden shadow-xl border border-white/5 cursor-pointer transition-all aspect-[2/3] ${status ? 'opacity-40 grayscale hover:grayscale-0 hover:opacity-100 hover:border-blue-500/50' : 'hover:border-blue-500/50'}`}>
+                      
+                      {status && (
+                        <div className="absolute top-2 right-2 bg-black/90 backdrop-blur-md text-white px-2 py-1 rounded-md text-[8px] font-black uppercase tracking-widest border border-white/10 z-20">
+                          {status === "assistido" ? "👀 Já Assistido" : "⏳ Na Fila"}
+                        </div>
+                      )}
 
-                    <img src={`https://image.tmdb.org/t/p/w500${filme.poster_path}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt={filme.title} />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
-                      <h4 className="font-black text-white text-sm leading-tight mb-1">{filme.title}</h4>
-                      <span className="text-blue-500 font-bold text-[10px] uppercase tracking-widest mb-4">Recomendado</span>
-                      <button className={`w-full backdrop-blur-md border border-white/20 text-white py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg ${status ? 'bg-blue-600/50 hover:bg-blue-600' : 'bg-white/10 hover:bg-blue-600 hover:border-transparent'}`}>
-                        {status ? "Ver no Diário" : "Ver Mais"}
-                      </button>
+                      <img src={`https://image.tmdb.org/t/p/w500${filme.poster_path}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt={filme.title} />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
+                        <h4 className="font-black text-white text-sm leading-tight mb-1">{filme.title}</h4>
+                        <span className="text-blue-500 font-bold text-[10px] uppercase tracking-widest mb-4">Recomendado</span>
+                        <button className={`w-full backdrop-blur-md border border-white/20 text-white py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg ${status ? 'bg-blue-600/50 hover:bg-blue-600' : 'bg-white/10 hover:bg-blue-600 hover:border-transparent'}`}>
+                          {status ? "Ver no Diário" : "Ver Mais"}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
 
