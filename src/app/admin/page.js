@@ -12,15 +12,21 @@ import toast from "react-hot-toast";
 
 export default function PainelAdmin() {
   const { isAdmin, carregandoAdmin } = useAdmin();
+  
+  const [emailNovoMembro, setEmailNovoMembro] = useState("");
+  const [listaMembros, setListaMembros] = useState([]);
+  
   const [emailNovoAdmin, setEmailNovoAdmin] = useState("");
   const [listaAdmins, setListaAdmins] = useState([]);
-  const [filmesAdmin, setFilmesAdmin] = useState([]); // 🪄 Agora carrega TODOS os filmes
+  
+  const [filmesAdmin, setFilmesAdmin] = useState([]); 
   const [comentariosRecentes, setComentariosRecentes] = useState([]);
+  const [listaUsuarios, setListaUsuarios] = useState([]); // 🪄 Radar de Usuários Ativado
+  
   const [stats, setStats] = useState({ vistos: 0, fila: 0 });
   const [carregando, setCarregando] = useState(true);
   const router = useRouter();
 
-  // 🪄 ESTADOS DO MODAL DE EDIÇÃO DE AUTOR
   const [modalAutor, setModalAutor] = useState(null);
   const [novoAutorNome, setNovoAutorNome] = useState("");
   const [novoAutorFoto, setNovoAutorFoto] = useState("");
@@ -33,6 +39,19 @@ export default function PainelAdmin() {
       snapAdmins.forEach((doc) => { if (doc.data().ativo) admins.push(doc.id); });
       setListaAdmins(admins);
 
+      const snapMembros = await getDocs(collection(db, "membros"));
+      const membros = [];
+      snapMembros.forEach((doc) => { membros.push(doc.id); });
+      setListaMembros(membros);
+
+      // 🪄 BUSCA TODOS QUE JÁ FIZERAM LOGIN
+      const snapUsuarios = await getDocs(collection(db, "usuarios"));
+      const users = [];
+      snapUsuarios.forEach((doc) => { users.push(doc.data()); });
+      // Ordena pelos que logaram mais recentemente
+      users.sort((a, b) => new Date(b.ultimoLogin || 0) - new Date(a.ultimoLogin || 0));
+      setListaUsuarios(users);
+
       const snapFilmes = await getDocs(collection(db, "filmes"));
       let contVistos = 0;
       let contFila = 0;
@@ -44,7 +63,7 @@ export default function PainelAdmin() {
         todosFilmes.push({ id: doc.id, ...data });
       });
       setStats({ vistos: contVistos, fila: contFila });
-      setFilmesAdmin(todosFilmes.reverse()); // Mostra os mais recentes primeiro
+      setFilmesAdmin(todosFilmes.reverse()); 
 
       const snapComents = await getDocs(collection(db, "comentarios"));
       const coments = [];
@@ -60,26 +79,70 @@ export default function PainelAdmin() {
 
   useEffect(() => { if (isAdmin) buscarDados(); }, [isAdmin]);
 
-  // 🪄 FUNÇÃO PARA SALVAR O NOVO AUTOR
+  // 🪄 NOVOS BOTÕES DE UM CLIQUE PARA AUTORIZAR A GALERA
+  const autorizarUsuario = async (email) => {
+    try {
+      await setDoc(doc(db, "membros", email.toLowerCase().trim()), { ativo: true });
+      buscarDados();
+      toast.success("Acesso liberado para indicar filmes!");
+    } catch (error) { toast.error("Falha ao autorizar."); }
+  };
+
+  const promoverAdminUsuario = async (email) => {
+    if (confirm(`Dar poderes totais de Admin para ${email}?`)) {
+      try {
+        await setDoc(doc(db, "admins", email.toLowerCase().trim()), { ativo: true });
+        buscarDados();
+        toast.success("Novo Admin nomeado!");
+      } catch (error) { toast.error("Falha ao promover."); }
+    }
+  };
+
+  const adicionarMembro = async (e) => {
+    e.preventDefault();
+    autorizarUsuario(emailNovoMembro);
+    setEmailNovoMembro("");
+  };
+
+  const removerMembro = async (email) => {
+    if (confirm(`Remover permissão de indicação para ${email}?`)) {
+      try {
+        await deleteDoc(doc(db, "membros", email));
+        buscarDados();
+        toast.success("Membro banido da lista.");
+      } catch (error) { toast.error("Erro ao remover membro."); }
+    }
+  };
+
+  const adicionarAdmin = async (e) => {
+    e.preventDefault();
+    promoverAdminUsuario(emailNovoAdmin);
+    setEmailNovoAdmin("");
+  };
+
+  const removerAdmin = async (email) => {
+    if (confirm(`Retirar poderes de ${email}?`)) {
+      try {
+        await deleteDoc(doc(db, "admins", email));
+        buscarDados();
+        toast.success("Poderes revogados.");
+      } catch (error) { toast.error("Erro no rebaixamento."); }
+    }
+  };
+
   const salvarNovoAutor = async (e) => {
     e.preventDefault();
     if (!modalAutor) return;
     try {
       await updateDoc(doc(db, "filmes", modalAutor.id), {
-        sugeridoPor: {
-          nome: novoAutorNome,
-          foto: novoAutorFoto
-        }
+        sugeridoPor: { nome: novoAutorNome, foto: novoAutorFoto }
       });
       toast.success("Autor do filme atualizado!");
       setModalAutor(null);
       buscarDados();
-    } catch (error) {
-      toast.error("Erro ao atualizar o autor.");
-    }
+    } catch (error) { toast.error("Erro ao atualizar o autor."); }
   };
 
-  // Preenche o modal ao clicar em Editar
   const abrirModalEdicao = (filme) => {
     setModalAutor(filme);
     const autorAtual = filme.usuarioNome || filme.sugeridoPor || filme.autor;
@@ -99,26 +162,6 @@ export default function PainelAdmin() {
         toast.success("Resenha incinerada!");
         buscarDados();
       } catch(e) { toast.error("Erro na operação."); }
-    }
-  };
-
-  const adicionarAdmin = async (e) => {
-    e.preventDefault();
-    try {
-      await setDoc(doc(db, "admins", emailNovoAdmin.toLowerCase().trim()), { ativo: true });
-      setEmailNovoAdmin("");
-      buscarDados();
-      toast.success("Novo General promovido!");
-    } catch (error) { toast.error("Falha na promoção."); }
-  };
-
-  const removerAdmin = async (email) => {
-    if (confirm(`Retirar poderes de ${email}?`)) {
-      try {
-        await deleteDoc(doc(db, "admins", email));
-        buscarDados();
-        toast.success("Poderes revogados.");
-      } catch (error) { toast.error("Erro no rebaixamento."); }
     }
   };
 
@@ -149,7 +192,6 @@ export default function PainelAdmin() {
     <main className="min-h-screen bg-[#0a0a0a] text-white pb-20 font-sans">
       <Navbar />
       
-      {/* 🪄 MODAL DE EDIÇÃO DE AUTOR */}
       {modalAutor && (
         <div className="fixed inset-0 z-[99999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#111111] p-8 rounded-3xl border border-white/10 shadow-2xl w-full max-w-md">
@@ -205,8 +247,8 @@ export default function PainelAdmin() {
               <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">Na Fila</span>
            </div>
            <div className="bg-[#141414] border border-white/5 p-6 rounded-3xl shadow-xl text-center">
-              <span className="block text-4xl font-black text-white mb-1">{listaAdmins.length}</span>
-              <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">Admins</span>
+              <span className="block text-4xl font-black text-white mb-1">{listaMembros.length}</span>
+              <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">Membros</span>
            </div>
            <div className="bg-[#141414] border border-white/5 p-6 rounded-3xl shadow-xl text-center">
               <span className="block text-4xl font-black text-green-500 mb-1">ON</span>
@@ -217,42 +259,42 @@ export default function PainelAdmin() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
           <div className="space-y-10">
             <section className="bg-[#111111] p-8 rounded-[2rem] border border-white/5 shadow-2xl">
+              <h3 className="text-[11px] font-black text-green-500 tracking-[0.2em] mb-6 flex items-center gap-2 uppercase">
+                <span className="w-6 h-[2px] bg-green-600"></span> Adição Manual de Membro
+              </h3>
+              <form onSubmit={adicionarMembro} className="space-y-4">
+                <input 
+                  type="email" required value={emailNovoMembro}
+                  onChange={(e) => setEmailNovoMembro(e.target.value)}
+                  placeholder="amigo@email.com"
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-sm outline-none focus:border-green-600 transition-all shadow-inner text-white"
+                />
+                <button type="submit" className="w-full bg-green-600 hover:bg-green-700 transition-all font-black py-4 rounded-2xl text-[10px] text-white uppercase tracking-[0.2em] shadow-lg shadow-green-600/20">Autorizar Indicação</button>
+              </form>
+            </section>
+
+            <section className="bg-[#111111] p-8 rounded-[2rem] border border-white/5 shadow-2xl">
               <h3 className="text-[11px] font-black text-white tracking-[0.2em] mb-6 flex items-center gap-2 uppercase">
-                <span className="w-6 h-[2px] bg-red-600"></span> Promover
+                <span className="w-6 h-[2px] bg-red-600"></span> Promover Admin Manualmente
               </h3>
               <form onSubmit={adicionarAdmin} className="space-y-4">
                 <input 
                   type="email" required value={emailNovoAdmin}
                   onChange={(e) => setEmailNovoAdmin(e.target.value)}
-                  placeholder="email@google.com"
-                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-sm outline-none focus:border-red-600 transition-all shadow-inner"
+                  placeholder="admin@email.com"
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-sm outline-none focus:border-red-600 transition-all shadow-inner text-white"
                 />
-                <button type="submit" className="w-full bg-red-600 hover:bg-red-700 transition-all font-black py-4 rounded-2xl text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-red-600/20">Conceder Poderes</button>
+                <button type="submit" className="w-full bg-red-600 hover:bg-red-700 transition-all font-black py-4 rounded-2xl text-[10px] text-white uppercase tracking-[0.2em] shadow-lg shadow-red-600/20">Conceder Poderes</button>
               </form>
-            </section>
-
-            <section className="bg-[#111111] p-8 rounded-[2rem] border border-white/5 shadow-2xl">
-              <h3 className="text-[11px] font-black text-gray-400 tracking-[0.2em] mb-6 flex items-center gap-2 uppercase">
-                <span className="w-6 h-[2px] bg-gray-600"></span> Admins Atuais
-              </h3>
-              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                {listaAdmins.map(email => (
-                  <div key={email} className="flex items-center justify-between p-4 bg-black/40 rounded-2xl border border-white/5 hover:border-red-600/30 transition-all">
-                    <span className="text-[10px] text-gray-300 font-bold truncate max-w-[150px]">{email}</span>
-                    <button onClick={() => removerAdmin(email)} className="text-[9px] font-black text-red-500 uppercase hover:text-red-400 bg-red-950/30 px-3 py-1.5 rounded-lg border border-red-900/50">Revogar</button>
-                  </div>
-                ))}
-              </div>
             </section>
           </div>
 
           <div className="lg:col-span-2 space-y-10">
-            {/* 🪄 MODERAÇÃO COMPLETA DE FILMES E AUTORES */}
             <section className="bg-[#111111] p-8 rounded-[2rem] border border-white/5 shadow-2xl">
               <h3 className="text-[11px] font-black text-orange-500 tracking-[0.2em] mb-8 flex items-center gap-2 uppercase">
                 <span className="w-6 h-[2px] bg-orange-600"></span> Gestão de Acervo (Filmes & Sugestões)
               </h3>
-              <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+              <div className="space-y-4 max-h-[480px] overflow-y-auto pr-2 custom-scrollbar">
                 {filmesAdmin.length > 0 ? filmesAdmin.map(filme => {
                   const autorRaw = filme.usuarioNome || filme.sugeridoPor || filme.autor;
                   const nomeAutor = typeof autorRaw === 'object' && autorRaw !== null ? (autorRaw.nome || autorRaw.displayName || "Desconhecido") : (autorRaw || "Anônimo");
@@ -274,7 +316,6 @@ export default function PainelAdmin() {
                         </div>
                       </div>
                       
-                      {/* BOTÕES DE AÇÃO DO ADMIN */}
                       <div className="flex gap-2 w-full sm:w-auto">
                         <button onClick={() => abrirModalEdicao(filme)} className="flex-1 sm:flex-none p-3 bg-blue-900/20 text-blue-500 border border-blue-900/30 rounded-xl hover:bg-blue-600 hover:text-white transition-all text-xs shadow-inner" title="Editar Autor">
                           ✏️
@@ -293,7 +334,7 @@ export default function PainelAdmin() {
               <h3 className="text-[11px] font-black text-blue-500 tracking-[0.2em] mb-8 flex items-center gap-2 uppercase">
                  <span className="w-6 h-[2px] bg-blue-600"></span> Monitoramento de Resenhas
               </h3>
-              <div className="grid grid-cols-1 gap-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+              <div className="grid grid-cols-1 gap-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
                 {comentariosRecentes.length > 0 ? comentariosRecentes.map(c => (
                   <div key={c.id} className="p-5 bg-black/40 rounded-2xl border border-white/5 flex items-start justify-between hover:border-red-600/30 transition-all">
                     <div className="flex-1">
@@ -312,6 +353,52 @@ export default function PainelAdmin() {
             </section>
           </div>
         </div>
+
+        {/* 🪄 NOVO: PAINEL DE CONTROLE DE ACESSOS (USER TRACKER) */}
+        <section className="bg-[#111111] p-8 rounded-[2rem] border border-white/5 shadow-2xl mt-10">
+          <h3 className="text-[11px] font-black text-purple-500 tracking-[0.2em] mb-8 flex items-center gap-2 uppercase">
+            <span className="w-6 h-[2px] bg-purple-600"></span> Banco de Usuários (Google Auth)
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+            {listaUsuarios.map(u => {
+              const isMembro = listaMembros.includes(u.email);
+              const isAdminUser = listaAdmins.includes(u.email);
+              
+              return (
+                <div key={u.email} className="bg-black/40 p-4 rounded-2xl border border-white/5 flex flex-col justify-between hover:border-white/20 transition-all">
+                   <div className="flex items-center gap-3 mb-4">
+                     <img src={u.foto || "https://via.placeholder.com/150"} className="w-10 h-10 rounded-full border border-white/10 object-cover" alt={u.nome} />
+                     <div className="flex flex-col overflow-hidden">
+                       <span className="text-xs font-black text-white truncate">{u.nome}</span>
+                       <span className="text-[9px] text-gray-500 truncate">{u.email}</span>
+                     </div>
+                   </div>
+                   
+                   <div className="flex items-center gap-2 border-t border-white/5 pt-3">
+                     {isMembro ? (
+                       <button onClick={() => removerMembro(u.email)} className="flex-1 bg-green-900/20 text-green-500 border border-green-900/30 py-2 rounded-xl text-[9px] font-black uppercase hover:bg-red-900/30 hover:text-red-500 hover:border-red-900/50 transition-all">Autorizado</button>
+                     ) : (
+                       <button onClick={() => autorizarUsuario(u.email)} className="flex-1 bg-white/5 text-gray-400 border border-white/10 py-2 rounded-xl text-[9px] font-black uppercase hover:bg-green-600 hover:text-white hover:border-green-500 transition-all shadow-md">Liberar Acesso</button>
+                     )}
+                     
+                     {isAdminUser ? (
+                       <button onClick={() => removerAdmin(u.email)} className="flex-1 bg-red-900/20 text-red-500 border border-red-900/30 py-2 rounded-xl text-[9px] font-black uppercase hover:bg-black hover:text-gray-500 transition-all">É Admin</button>
+                     ) : (
+                       <button onClick={() => promoverAdminUsuario(u.email)} className="flex-1 bg-white/5 text-gray-400 border border-white/10 py-2 rounded-xl text-[9px] font-black uppercase hover:bg-red-600 hover:text-white hover:border-red-500 transition-all">Poderes</button>
+                     )}
+                   </div>
+                </div>
+              )
+            })}
+            
+            {listaUsuarios.length === 0 && (
+              <div className="col-span-full py-10 text-center text-gray-600 text-xs italic font-bold">
+                Ninguém logou ainda. O radar está ativo!
+              </div>
+            )}
+          </div>
+        </section>
+
       </div>
     </main>
   );
