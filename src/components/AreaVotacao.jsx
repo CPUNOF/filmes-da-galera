@@ -91,15 +91,15 @@ export default function AreaVotacao({ filmeId }) {
 
         progresso += 1;
 
-        if (progresso >= 5) {
+        if (progresso >= 20) {
           progresso = 0;
           ingressos += 1;
-          toast.success("🎫 INGRESSO DOURADO GANHO!\\nVocê avaliou 5 filmes da Galera!", { 
+          toast.success("🎫 INGRESSO DOURADO GANHO!\\nVocê avaliou 20 filmes da Galera!", { 
             duration: 6000, 
             style: { background: '#ca8a04', color: '#fff', fontWeight: '900', textTransform: 'uppercase', textAlign: 'center', fontSize: '12px' }
           });
         } else {
-          toast(`⭐ Avaliação Salva! +1 Ponto!\\nFaltam ${5 - progresso} para o Ingresso Dourado.`, { 
+          toast(`⭐ Avaliação Salva! +1 Ponto!\\nFaltam ${20 - progresso} para o Ingresso Dourado.`, { 
             icon: '🎟️', 
             style: { background: '#111', color: '#fff', fontSize: '11px', fontWeight: 'bold', border: '1px solid #333' } 
           });

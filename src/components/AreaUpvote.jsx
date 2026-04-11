@@ -66,15 +66,15 @@ export default function AreaUpvote({ filmeId }) {
 
         progresso += 1;
 
-        if (progresso >= 5) {
+        if (progresso >= 20) {
           progresso = 0;
           ingressos += 1;
-          toast.success("🎫 INGRESSO DOURADO GANHO!\nVocê ajudou a galera 5 vezes!", { 
+          toast.success("🎫 INGRESSO DOURADO GANHO!\nVocê ajudou a galera 20 vezes!", { 
             duration: 6000, 
             style: { background: '#ca8a04', color: '#fff', fontWeight: '900', textTransform: 'uppercase', textAlign: 'center', fontSize: '12px' }
           });
         } else {
-          toast(`🔥 +1 Ponto! Faltam ${5 - progresso} para o Ingresso Dourado.`, { 
+          toast(`🔥 +1 Ponto! Faltam ${20 - progresso} para o Ingresso Dourado.`, { 
             icon: '🔥', 
             style: { background: '#111', color: '#fff', fontSize: '11px', fontWeight: 'bold', border: '1px solid #333' } 
           });

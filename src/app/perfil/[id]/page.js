@@ -360,13 +360,13 @@ export default function PerfilUsuario({ params }) {
             {/* Barra de Progresso Slim */}
             <div className="flex-1 w-full flex flex-col gap-2">
               <div className="flex justify-between items-center px-1">
-                <p className="text-[9px] font-black uppercase tracking-widest text-gray-400">Próximo Ingresso: <span className="text-white">{dadosGamer.progresso}/5</span></p>
-                <p className="text-[8px] font-black uppercase text-gray-700 italic">{5 - dadosGamer.progresso} votos faltam</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-gray-400">Próximo Ingresso: <span className="text-white">{dadosGamer.progresso}/20</span></p>
+                <p className="text-[8px] font-black uppercase text-gray-700 italic">{20 - dadosGamer.progresso} votos faltam</p>
               </div>
               <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden border border-white/5 p-[1px]">
                 <div 
                   className="h-full bg-gradient-to-r from-yellow-700 via-yellow-500 to-yellow-400 transition-all duration-1000 shadow-[0_0_10px_rgba(234,179,8,0.3)] rounded-full"
-                  style={{ width: `${(dadosGamer.progresso / 5) * 100}%` }}
+                  style={{ width: `${(dadosGamer.progresso / 20) * 100}%` }}
                 ></div>
               </div>
             </div>

@@ -103,7 +103,7 @@ export default function RecompensasPage() {
             </p>
             <div className="bg-yellow-900/10 border border-yellow-500/20 p-5 sm:p-6 rounded-2xl mb-6 shadow-inner">
               <p className="text-xs sm:text-sm text-gray-300 font-medium leading-relaxed">
-                A cada <strong className="text-yellow-500">5 interações</strong> (votar nas sugestões ou avaliar filmes assistidos), você ganha <strong className="text-white">1 Ingresso Dourado</strong>. Na hora de indicar o seu filme, use o ingresso para ignorar a votação democrática e jogá-lo <strong className="text-yellow-500 border-b border-yellow-500">direto para o Top 1 da Fila.</strong>
+                A cada <strong className="text-yellow-500">20 interações</strong> (votar nas sugestões ou avaliar filmes assistidos), você ganha <strong className="text-white">1 Ingresso Dourado</strong>. Na hora de indicar o seu filme, use o ingresso para ignorar a votação democrática e jogá-lo <strong className="text-yellow-500 border-b border-yellow-500">direto para o Top 1 da Fila.</strong>
               </p>
             </div>
             <Link href="/" className="inline-flex items-center gap-2 bg-yellow-600 hover:bg-yellow-500 text-black px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(234,179,8,0.3)] hover:shadow-[0_0_30px_rgba(234,179,8,0.6)]">
