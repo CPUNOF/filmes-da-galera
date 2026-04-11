@@ -78,34 +78,44 @@ export default function AreaVotacao({ filmeId }) {
 
       setVotoUsuario(novaNota); 
 
+      // 🪄 ANTI-FARM: Verifica quem é o dono do filme antes de dar o ponto
+      const filmeDocSnap = await getDoc(doc(db, "filmes", filmeId));
+      const donoDoFilme = filmeDocSnap.exists() ? filmeDocSnap.data().sugeridoPor?.uid : null;
+
       // 🪄 LÓGICA DO INGRESSO DOURADO: Só ganha pontos se for a primeira vez a avaliar este filme
       if (isNovoVoto) {
-        const userSnap = await getDoc(userRef);
-        let progresso = 0;
-        let ingressos = 0;
-
-        if (userSnap.exists()) {
-          progresso = userSnap.data().votosParaIngresso || 0;
-          ingressos = userSnap.data().ingressosDourados || 0;
-        }
-
-        progresso += 1;
-
-        if (progresso >= 20) {
-          progresso = 0;
-          ingressos += 1;
-          toast.success("🎫 INGRESSO DOURADO GANHO!\\nVocê avaliou 20 filmes da Galera!", { 
-            duration: 6000, 
-            style: { background: '#ca8a04', color: '#fff', fontWeight: '900', textTransform: 'uppercase', textAlign: 'center', fontSize: '12px' }
+        if (donoDoFilme === user.uid) {
+           toast("Avaliação Salva! (Seus filmes não dão pontos pro ingresso 😅)", { 
+            icon: '⭐', style: { background: '#111', color: '#fff', fontSize: '11px', border: '1px solid #333' } 
           });
         } else {
-          toast(`⭐ Avaliação Salva! +1 Ponto!\\nFaltam ${20 - progresso} para o Ingresso Dourado.`, { 
-            icon: '🎟️', 
-            style: { background: '#111', color: '#fff', fontSize: '11px', fontWeight: 'bold', border: '1px solid #333' } 
-          });
-        }
+          const userSnap = await getDoc(userRef);
+          let progresso = 0;
+          let ingressos = 0;
 
-        await setDoc(userRef, { votosParaIngresso: progresso, ingressosDourados: ingressos }, { merge: true });
+          if (userSnap.exists()) {
+            progresso = userSnap.data().votosParaIngresso || 0;
+            ingressos = userSnap.data().ingressosDourados || 0;
+          }
+
+          progresso += 1;
+
+          if (progresso >= 20) {
+            progresso = 0;
+            ingressos += 1;
+            toast.success("🎫 INGRESSO DOURADO GANHO!\nVocê avaliou 20 filmes da Galera!", { 
+              duration: 6000, 
+              style: { background: '#ca8a04', color: '#fff', fontWeight: '900', textTransform: 'uppercase', textAlign: 'center', fontSize: '12px' }
+            });
+          } else {
+            toast(`⭐ Avaliação Salva! +1 Ponto!\nFaltam ${20 - progresso} para o Ingresso Dourado.`, { 
+              icon: '🎟️', 
+              style: { background: '#111', color: '#fff', fontSize: '11px', fontWeight: 'bold', border: '1px solid #333' } 
+            });
+          }
+
+          await setDoc(userRef, { votosParaIngresso: progresso, ingressosDourados: ingressos }, { merge: true });
+        }
       } else {
         toast.success("Avaliação atualizada com sucesso!");
       }

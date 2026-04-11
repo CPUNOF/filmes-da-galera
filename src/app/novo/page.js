@@ -32,8 +32,9 @@ export default function NovoFilme() {
   const [jaAssisti, setJaAssisti] = useState(false);
   const [minhaNota, setMinhaNota] = useState(0);
 
-  // 🪄 ESTADOS DO INGRESSO DOURADO
+  // 🪄 ESTADOS DO INGRESSO DOURADO E COOLDOWN
   const [meusIngressos, setMeusIngressos] = useState(0);
+  const [ultimoUsoIngresso, setUltimoUsoIngresso] = useState(null);
   const [usarIngresso, setUsarIngresso] = useState(false);
 
   const [recomendados, setRecomendados] = useState([]);
@@ -48,19 +49,20 @@ export default function NovoFilme() {
     return () => unsubscribe();
   }, []);
 
-// 🪄 BUSCA A CARTEIRA DE INGRESSOS DO USUÁRIO EM TEMPO REAL
+  // 🪄 TÚNEL DO INGRESSO EM TEMPO REAL E COOLDOWN
   useEffect(() => {
     if (!usuario) return;
     
-    // Agora é um túnel ao vivo! Se ganhar o ingresso, a caixa aparece na mesma hora.
     const unsubscribe = onSnapshot(doc(db, "usuarios", usuario.email.toLowerCase()), (snap) => {
       if (snap.exists()) {
         setMeusIngressos(snap.data().ingressosDourados || 0);
+        setUltimoUsoIngresso(snap.data().ultimoIngressoUsado || null);
       }
     });
     
     return () => unsubscribe();
   }, [usuario]);
+
   useEffect(() => {
     async function carregarInteligenciaEAcervo() {
       try {
@@ -155,7 +157,7 @@ export default function NovoFilme() {
 
   const selecionarFilme = (filme) => {
     setFilmeSelecionado(filme);
-    setUsarIngresso(false); // Reseta o uso do ingresso ao trocar de filme
+    setUsarIngresso(false);
     setJaAssisti(false);
     setMinhaNota(0);
   };
@@ -218,7 +220,7 @@ export default function NovoFilme() {
         duracao: duracaoFilme, 
         trailerKey: videoKey,
         dataLancamento: filmeSelecionado.release_date || "",
-        sugeridoPor: { nome: usuario.displayName, foto: usuario.photoURL, uid: usuario.uid },
+        sugeridoPor: { nome: usuario.displayName, foto: usuario.photoURL, uid: usuario.uid, email: usuario.email },
         dataCriacao: new Date().toISOString()
       };
 
@@ -229,11 +231,12 @@ export default function NovoFilme() {
         filmeParaGrupo.notaTMDB = filmeSelecionado.vote_average ? filmeSelecionado.vote_average.toFixed(1) : "N/A";
         filmeParaGrupo.quantidadeVotos = 0;
         
-        // 🪄 APLICA O FURA-FILA E DESCONTA DA CARTEIRA
+        // 🪄 APLICA O FURA-FILA, DESCONTA DA CARTEIRA E ATUALIZA A DATA DO COOLDOWN
         if (usarIngresso && meusIngressos > 0) {
           filmeParaGrupo.ingressoDourado = true;
           await updateDoc(doc(db, "usuarios", usuario.email.toLowerCase()), {
-            ingressosDourados: meusIngressos - 1
+            ingressosDourados: meusIngressos - 1,
+            ultimoIngressoUsado: new Date().toISOString() // Salva o tempo para o Cooldown de 7 dias
           });
         }
         
@@ -283,6 +286,13 @@ export default function NovoFilme() {
 
   const statusNoGrupo = filmeSelecionado ? acervoIds[filmeSelecionado.id] : null;
 
+  // 🪄 CÁLCULO DE COOLDOWN DE 7 DIAS
+  const agora = new Date();
+  const dataUltimoUso = ultimoUsoIngresso ? new Date(ultimoUsoIngresso) : null;
+  const diasPassados = dataUltimoUso ? (agora - dataUltimoUso) / (1000 * 60 * 60 * 24) : 7;
+  const emCooldown = diasPassados < 7;
+  const diasRestantes = Math.ceil(7 - diasPassados);
+
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-white pb-20 overflow-x-hidden relative font-sans">
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-2xl h-[400px] bg-red-900/20 blur-[120px] pointer-events-none z-0"></div>
@@ -327,16 +337,27 @@ export default function NovoFilme() {
                   </div>
                 )}
 
-                {/* 🪄 CAIXA DO INGRESSO DOURADO */}
+                {/* 🪄 CAIXA DO INGRESSO DOURADO COM PROTEÇÃO DE COOLDOWN */}
                 {meusIngressos > 0 && !statusNoGrupo && (
-                  <div className="mb-4 bg-yellow-900/20 border border-yellow-500/50 p-4 rounded-xl flex items-center gap-3 w-fit mx-auto sm:mx-0 shadow-[0_0_20px_rgba(234,179,8,0.1)]">
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" checked={usarIngresso} onChange={(e) => setUsarIngresso(e.target.checked)} className="w-5 h-5 accent-yellow-500 rounded cursor-pointer" />
-                      <span className="text-[10px] sm:text-xs text-yellow-500 uppercase font-black tracking-widest leading-relaxed text-left">
-                        USAR 1 INGRESSO DOURADO 🎫 (Você tem {meusIngressos})<br/>
-                        <span className="text-[8px] text-yellow-600">Este filme vai ignorar os votos e ir direto para o Topo da Fila!</span>
-                      </span>
-                    </label>
+                  <div className={`mb-4 border p-4 rounded-xl flex items-center gap-3 w-fit mx-auto sm:mx-0 transition-colors ${emCooldown ? 'bg-black/40 border-orange-500/30' : 'bg-yellow-900/20 border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.1)]'}`}>
+                    {emCooldown ? (
+                      <div className="flex flex-col text-left">
+                        <span className="text-[10px] sm:text-xs text-orange-500 uppercase font-black tracking-widest leading-relaxed flex items-center gap-2">
+                          <span className="text-lg">⏳</span> Ingresso em Cooldown
+                        </span>
+                        <span className="text-[8px] text-gray-400 mt-1">
+                          Aguarde <strong className="text-white">{diasRestantes} {diasRestantes === 1 ? 'dia' : 'dias'}</strong> para usar o fura-fila novamente. (Regra: 1 por semana).
+                        </span>
+                      </div>
+                    ) : (
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" checked={usarIngresso} onChange={(e) => setUsarIngresso(e.target.checked)} className="w-5 h-5 accent-yellow-500 rounded cursor-pointer" />
+                        <span className="text-[10px] sm:text-xs text-yellow-500 uppercase font-black tracking-widest leading-relaxed text-left">
+                          USAR 1 INGRESSO DOURADO 🎫 (Você tem {meusIngressos})<br/>
+                          <span className="text-[8px] text-yellow-600">Este filme vai ignorar os votos e ir direto para o Topo da Fila!</span>
+                        </span>
+                      </label>
+                    )}
                   </div>
                 )}
 

@@ -8,8 +8,10 @@ import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import CartaoFilme from "@/components/CartaoFilme";
 import RoletaModal from "@/components/RoletaModal";
-import { db } from "@/lib/firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { collection, getDocs, doc, getDoc, setDoc, updateDoc, onSnapshot, arrayUnion, arrayRemove } from "firebase/firestore";
+import toast from "react-hot-toast";
 
 function formatarData(dataISO) {
   if (!dataISO) return "";
@@ -20,6 +22,7 @@ function GaleriaConteudo() {
   const searchParams = useSearchParams();
   const searchInital = searchParams.get('search') || "";
 
+  const [usuario, setUsuario] = useState(null);
   const [filmes, setFilmes] = useState([]);
   const [sugestoesTop, setSugestoesTop] = useState([]);
   const [termoBusca, setTermoBusca] = useState(searchInital);
@@ -27,6 +30,61 @@ function GaleriaConteudo() {
   const [stats, setStats] = useState({ vistos: 0, naFila: 0 });
   const [carregando, setCarregando] = useState(true);
   const [modalRoletaAberto, setModalRoletaAberto] = useState(false);
+
+  // 🪄 ESTADOS DO EVENTO E CRONÔMETRO
+  const [eventoConfig, setEventoConfig] = useState({ ativo: false, titulo: "", data: "", local: "", confirmados: [] });
+  const [tempoRestante, setTempoRestante] = useState({ dias: 0, horas: 0, minutos: 0, segundos: 0 });
+  const [carregandoPresenca, setCarregandoPresenca] = useState(false);
+  
+  // 🪄 ESTADOS DO POP-UP DE EDIÇÃO DO EVENTO
+  const [modalEventoAberto, setModalEventoAberto] = useState(false);
+  const [formEvento, setFormEvento] = useState({ titulo: "", data: "", hora: "", local: "Discord" });
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => setUsuario(user));
+    return () => unsubscribe();
+  }, []);
+
+  // 🪄 1. TÚNEL DO EVENTO (Apenas busca os dados, sem criar relógios)
+  useEffect(() => {
+    const eventoRef = doc(db, "configuracoes", "proximoEvento");
+    const unsubscribe = onSnapshot(eventoRef, (snap) => {
+      if (snap.exists() && snap.data().ativo) {
+        setEventoConfig(snap.data());
+      } else {
+        setEventoConfig({ ativo: false, titulo: "", data: "", local: "", confirmados: [] });
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 🪄 2. O CRONÔMETRO BLINDADO (Isolado para não bugar)
+  useEffect(() => {
+    if (!eventoConfig.ativo || !eventoConfig.data) return;
+
+    const calcularTempo = () => {
+      const dataEvento = new Date(eventoConfig.data).getTime();
+      const agora = new Date().getTime();
+      const diferenca = dataEvento - agora;
+
+      if (diferenca > 0) {
+        setTempoRestante({
+          dias: Math.floor(diferenca / (1000 * 60 * 60 * 24)),
+          horas: Math.floor((diferenca % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
+          minutos: Math.floor((diferenca % (1000 * 60 * 60)) / (1000 * 60)),
+          segundos: Math.floor((diferenca % (1000 * 60)) / 1000),
+        });
+      } else {
+        setTempoRestante({ dias: 0, horas: 0, minutos: 0, segundos: 0 });
+      }
+    };
+
+    calcularTempo(); 
+    const intervalo = setInterval(calcularTempo, 1000);
+    
+    // O pulo do gato: desliga o relógio velho antes de criar um novo!
+    return () => clearInterval(intervalo);
+  }, [eventoConfig.data, eventoConfig.ativo]);
 
   useEffect(() => {
     async function carregarDados() {
@@ -40,23 +98,16 @@ function GaleriaConteudo() {
         setStats({ vistos: assistidos.length, naFila: sugeridos.length });
         setFilmes(assistidos);
 
-        // 🪄 ALGORITMO SOBERANO: O INGRESSO DOURADO É O REI DA FILA
         const topSugestoes = sugeridos
           .sort((a, b) => {
-            // 1. Checagem de Prioridade (Ingresso Dourado fura a fila)
             const prioridadeA = a.ingressoDourado ? 1 : 0;
             const prioridadeB = b.ingressoDourado ? 1 : 0;
-            
-            if (prioridadeA !== prioridadeB) {
-              return prioridadeB - prioridadeA; // O que tem ingresso (1) vem antes do que não tem (0)
-            }
-
-            // 2. Critério de Desempate: Se ambos tiverem (ou não) ingresso, vence quem tem mais votos
+            if (prioridadeA !== prioridadeB) return prioridadeB - prioridadeA;
             const votosA = a.upvotes?.length || a.quantidadeVotos || 0;
             const votosB = b.upvotes?.length || b.quantidadeVotos || 0;
             return votosB - votosA;
           })
-          .slice(0, 4); // Pega os 4 vencedores para a vitrine da Home
+          .slice(0, 4);
           
         setSugestoesTop(topSugestoes);
       } catch (e) {
@@ -68,6 +119,69 @@ function GaleriaConteudo() {
     carregarDados();
   }, []);
 
+  const alternarPresenca = async () => {
+    if (!usuario) return toast.error("Faça login para confirmar presença!");
+    
+    setCarregandoPresenca(true);
+    const eventoRef = doc(db, "configuracoes", "proximoEvento");
+    const confirmados = eventoConfig.confirmados || [];
+    const jaConfirmado = confirmados.some(p => p.uid === usuario.uid);
+
+    try {
+      const dadosUsuario = { uid: usuario.uid, nome: usuario.displayName, foto: usuario.photoURL };
+
+      if (jaConfirmado) {
+        const pessoaParaRemover = confirmados.find(p => p.uid === usuario.uid);
+        await updateDoc(eventoRef, { confirmados: arrayRemove(pessoaParaRemover) });
+        toast("Nome retirado da lista.", { icon: "😢" });
+      } else {
+        await updateDoc(eventoRef, { confirmados: arrayUnion(dadosUsuario) });
+        toast.success("Presença Confirmada! 🍿");
+      }
+    } catch (error) {
+      toast.error("Erro ao registrar presença.");
+    } finally {
+      setCarregandoPresenca(false);
+    }
+  };
+
+  const abrirModalEdicao = () => {
+    if (!usuario) return toast.error("Faça login para criar um evento!");
+    if (eventoConfig.ativo && eventoConfig.data) {
+      const dataObj = new Date(eventoConfig.data);
+      const dataStr = dataObj.toISOString().split('T')[0];
+      const horaStr = dataObj.toTimeString().substring(0, 5);
+      setFormEvento({ titulo: eventoConfig.titulo, data: dataStr, hora: horaStr, local: eventoConfig.local });
+    } else {
+      setFormEvento({ titulo: "", data: "", hora: "20:00", local: "Discord" });
+    }
+    setModalEventoAberto(true);
+  };
+
+  const salvarEvento = async (e) => {
+    e.preventDefault();
+    if (!formEvento.titulo || !formEvento.data || !formEvento.hora) return toast.error("Preencha Título, Data e Hora!");
+    
+    const t = toast.loading("Salvando evento...");
+    try {
+      const dataISO = `${formEvento.data}T${formEvento.hora}:00`;
+      await setDoc(doc(db, "configuracoes", "proximoEvento"), {
+        ativo: true,
+        titulo: formEvento.titulo,
+        local: formEvento.local || "Discord",
+        data: dataISO,
+        confirmados: eventoConfig.confirmados || [] 
+      }, { merge: true });
+      
+      setModalEventoAberto(false);
+      toast.dismiss(t);
+      toast.success("Evento marcado com sucesso! 🎬");
+    } catch (error) {
+      toast.dismiss(t);
+      toast.error("Erro ao salvar o evento.");
+    }
+  };
+
   const filmesExibidos = filmes
     .filter(f => JSON.stringify(f).toLowerCase().includes(termoBusca.toLowerCase()))
     .sort((a, b) => abaAtiva === "recentes" 
@@ -75,11 +189,49 @@ function GaleriaConteudo() {
       : (b.notaGeral || 0) - (a.notaGeral || 0)
     );
 
+  const jaConfirmou = usuario && (eventoConfig.confirmados || []).some(p => p.uid === usuario.uid);
+
   return (
-    <div className="relative min-h-screen pb-20">
+    <div className="relative min-h-screen">
       
+      {/* 🪄 MODAL DE CRIAR/EDITAR EVENTO */}
+      {modalEventoAberto && (
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-sm cursor-pointer" onClick={() => setModalEventoAberto(false)}></div>
+          <div className="relative bg-[#111] border border-white/10 rounded-[2rem] p-6 sm:p-8 w-full max-w-md shadow-2xl animate-fade-in-up">
+            <button onClick={() => setModalEventoAberto(false)} className="absolute top-4 right-4 text-gray-500 hover:text-white">✕</button>
+            <h2 className="text-2xl font-black uppercase italic tracking-tighter mb-6 text-white flex items-center gap-2">
+              <span className="text-red-600">🍿</span> Marcar Sessão
+            </h2>
+            <form onSubmit={salvarEvento} className="flex flex-col gap-4">
+              <div>
+                <label className="text-[10px] font-black uppercase text-gray-500 tracking-widest mb-1 block">Qual o Filme / Tema?</label>
+                <input type="text" value={formEvento.titulo} onChange={e => setFormEvento({...formEvento, titulo: e.target.value})} placeholder="Ex: Maratona Shrek, Votação do Top 1..." className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-red-500 outline-none" />
+              </div>
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="text-[10px] font-black uppercase text-gray-500 tracking-widest mb-1 block">Data</label>
+                  <input type="date" value={formEvento.data} onChange={e => setFormEvento({...formEvento, data: e.target.value})} className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-red-500 outline-none [color-scheme:dark]" />
+                </div>
+                <div className="flex-1">
+                  <label className="text-[10px] font-black uppercase text-gray-500 tracking-widest mb-1 block">Hora</label>
+                  <input type="time" value={formEvento.hora} onChange={e => setFormEvento({...formEvento, hora: e.target.value})} className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-red-500 outline-none [color-scheme:dark]" />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-black uppercase text-gray-500 tracking-widest mb-1 block">Local</label>
+                <input type="text" value={formEvento.local} onChange={e => setFormEvento({...formEvento, local: e.target.value})} placeholder="Ex: Discord, Casa do Breno..." className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-red-500 outline-none" />
+              </div>
+              <button type="submit" className="mt-2 bg-red-600 hover:bg-red-700 text-white font-black uppercase tracking-widest text-xs py-4 rounded-xl transition-colors">
+                Confirmar Evento
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* HEADER HERO */}
-      <div className="relative w-full pt-28 sm:pt-40 pb-12 sm:pb-16 overflow-hidden">
+      <div className="relative w-full pt-24 sm:pt-40 pb-8 sm:pb-16 overflow-hidden">
         <div 
           className="absolute inset-0 z-0 bg-cover bg-center opacity-20 scale-105" 
           style={{ backgroundImage: "url('https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ5pIpk2JBiryNHSRzvS9_LOHB3-um8JSzqNQ&s')" }}
@@ -87,8 +239,11 @@ function GaleriaConteudo() {
         <div className="absolute inset-0 z-10 bg-gradient-to-t from-[#070707] via-[#070707]/80 to-transparent"></div>
 
         <div className="relative z-20 max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 sm:gap-8 mb-8 sm:mb-12">
-            <div className="max-w-2xl">
+          
+          <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-6 sm:gap-8 mb-6 sm:mb-12">
+            
+            {/* Título e Subtítulo */}
+            <div className="max-w-xl shrink-0">
               <h1 className="text-4xl sm:text-6xl font-black tracking-tighter mb-2 sm:mb-4 uppercase italic leading-none">
                 FILMES DA <br className="hidden sm:block" />GALERA<span className="text-red-600">.</span>
               </h1>
@@ -96,17 +251,62 @@ function GaleriaConteudo() {
                 Nossa curadoria particular de cinema. Onde a gente decide o que presta e o que vai pro lixo.
               </p>
             </div>
+
+            {/* WIDGET DO PRÓXIMO EVENTO */}
+            <div className="flex-1 w-full xl:max-w-md 2xl:max-w-lg shrink-0 z-30">
+              {eventoConfig.ativo ? (
+                <div className="bg-red-900/20 backdrop-blur-md border border-red-500/30 p-4 sm:p-5 rounded-2xl sm:rounded-3xl shadow-[0_0_30px_rgba(220,38,38,0.1)] relative group w-full flex items-center justify-between gap-4">
+                  {usuario && (
+                    <button onClick={abrirModalEdicao} className="absolute top-2 right-2 text-xs bg-black/50 p-1.5 rounded-lg hover:bg-white/20 opacity-100 xl:opacity-0 group-hover:opacity-100 transition-opacity border border-white/5" title="Editar Evento">✏️</button>
+                  )}
+                  
+                  <div className="flex-1">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></span>
+                      <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-red-400">Próxima Sessão</span>
+                    </div>
+                    <h3 className="text-sm sm:text-base font-black uppercase italic text-white leading-tight mb-1 truncate pr-6">{eventoConfig.titulo}</h3>
+                    <p className="text-[9px] sm:text-[10px] text-gray-400 font-bold uppercase tracking-widest flex items-center gap-1">
+                      <span>📍</span> {eventoConfig.local}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col items-end gap-2 shrink-0 border-l border-white/10 pl-4">
+                    <div className="text-center">
+                      <span className="block text-[14px] sm:text-[16px] font-black text-white leading-none">
+                        {tempoRestante.dias}d {tempoRestante.horas.toString().padStart(2,'0')}:{tempoRestante.minutos.toString().padStart(2,'0')}:{tempoRestante.segundos.toString().padStart(2,'0')}
+                      </span>
+                    </div>
+                    <button 
+                      onClick={alternarPresenca} disabled={carregandoPresenca}
+                      className={`px-3 py-1.5 rounded-lg font-black uppercase tracking-widest text-[8px] sm:text-[9px] transition-all flex items-center gap-1.5 shadow-md ${
+                        jaConfirmou ? 'bg-green-600/20 text-green-400 border border-green-500' : 'bg-red-600 text-white hover:bg-red-500'
+                      }`}
+                    >
+                      {carregandoPresenca ? "..." : (jaConfirmou ? "✔️ Confirmado" : "🍿 Vou Assistir")}
+                      <span className="bg-black/40 px-1.5 py-0.5 rounded text-[7px]">{eventoConfig.confirmados?.length || 0}</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div onClick={abrirModalEdicao} className="bg-black/40 backdrop-blur-md border border-dashed border-white/20 p-4 sm:p-5 rounded-2xl sm:rounded-3xl flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 transition-colors w-full h-full min-h-[90px]">
+                  <span className="text-gray-400 font-black uppercase tracking-widest text-[10px] sm:text-xs">📅 Criar Evento da Galera</span>
+                </div>
+              )}
+            </div>
             
-            <div className="flex gap-2 sm:gap-3 w-full md:w-auto mt-2 md:mt-0">
-              <div className="bg-[#111111]/80 backdrop-blur-md border border-white/5 px-4 py-2.5 sm:px-5 sm:py-3 rounded-2xl text-center flex-1 md:min-w-[90px] shadow-xl">
-                <span className="block text-2xl sm:text-3xl font-black text-red-600 leading-none mb-1">{stats.vistos}</span>
+            {/* ESTATÍSTICAS */}
+            <div className="flex gap-2 sm:gap-3 w-full xl:w-auto shrink-0">
+              <div className="bg-[#111]/80 backdrop-blur-md border border-white/5 px-3 py-2 sm:px-5 sm:py-3 rounded-xl sm:rounded-2xl text-center flex-1 shadow-xl">
+                <span className="block text-xl sm:text-3xl font-black text-red-600 leading-none mb-0.5">{stats.vistos}</span>
                 <span className="text-[8px] font-black uppercase tracking-widest text-gray-500">Vistos</span>
               </div>
-              <div className="bg-[#111111]/80 backdrop-blur-md border border-white/5 px-4 py-2.5 sm:px-5 sm:py-3 rounded-2xl text-center flex-1 md:min-w-[90px] shadow-xl">
-                <span className="block text-2xl sm:text-3xl font-black text-blue-500 leading-none mb-1">{stats.naFila}</span>
+              <div className="bg-[#111]/80 backdrop-blur-md border border-white/5 px-3 py-2 sm:px-5 sm:py-3 rounded-xl sm:rounded-2xl text-center flex-1 shadow-xl">
+                <span className="block text-xl sm:text-3xl font-black text-blue-500 leading-none mb-0.5">{stats.naFila}</span>
                 <span className="text-[8px] font-black uppercase tracking-widest text-gray-500">Na Fila</span>
               </div>
             </div>
+
           </div>
 
           <div className="bg-[#111111]/90 backdrop-blur-xl border border-white/5 p-1.5 sm:p-2 rounded-2xl sm:rounded-full flex flex-col sm:flex-row justify-between items-center shadow-lg relative gap-2 sm:gap-1 group">
@@ -125,7 +325,7 @@ function GaleriaConteudo() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 mt-6 sm:mt-10 relative z-30">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 mt-6 sm:mt-10 relative z-30 pb-24">
         
         {/* SUGESTÕES COM LOGICA DE FURA-FILA APLICADA */}
         {sugestoesTop.length > 0 && (
@@ -171,6 +371,29 @@ function GaleriaConteudo() {
       </div>
 
       <RoletaModal isOpen={modalRoletaAberto} onClose={() => setModalRoletaAberto(false)} filmes={sugestoesTop} />
+
+      {/* 🪄 RODAPÉ PROFISSIONAL */}
+      <footer className="w-full bg-[#050505] border-t border-white/5 pt-12 pb-8 mt-10">
+        <div className="max-w-7xl mx-auto px-6 flex flex-col items-center justify-center gap-6">
+          <div className="flex items-center gap-2 opacity-50 hover:opacity-100 transition-opacity">
+            <span className="font-black text-white text-2xl tracking-widest italic">FDG<span className="text-red-600">.</span></span>
+          </div>
+          
+          <div className="flex flex-wrap justify-center gap-6 text-[10px] font-black uppercase tracking-widest">
+            <Link href="/" className="text-gray-500 hover:text-white transition-colors">Início</Link>
+            <Link href="/sugestoes" className="text-gray-500 hover:text-white transition-colors">Sugestões</Link>
+            <Link href="/recompensas" className="text-gray-500 hover:text-yellow-500 transition-colors">Regras</Link>
+            <Link href="/lixeira" className="text-gray-500 hover:text-green-500 transition-colors">Lixeira</Link>
+          </div>
+
+          <div className="w-24 h-[1px] bg-white/10 my-2"></div>
+
+          <p className="text-center text-[9px] font-bold uppercase tracking-widest text-gray-600 leading-relaxed">
+            Feito com 🍿 e ódio por filmes ruins.<br />
+            &copy; {new Date().getFullYear()} Filmes da Galera. Todos os direitos reservados.
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }

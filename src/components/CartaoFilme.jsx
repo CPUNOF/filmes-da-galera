@@ -27,10 +27,14 @@ export default function CartaoFilme({ filme, veredito, dataLabel, isSugestao, is
     setMostrarVideo(false);
   };
 
+  // 🪄 VERIFICAÇÕES DE CLASSIFICAÇÃO (LIXO VS OBRA-PRIMA)
+  const isChorume = !isSugestao && !isDiario && Number(filme.notaGeral) <= 5 && Number(filme.notaGeral) > 0;
+  const isObraPrima = !isSugestao && !isDiario && Number(filme.notaGeral) >= 8.0;
+
   return (
     <div 
       onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}
-      className="bg-[#111111] rounded-2xl overflow-hidden shadow-lg transition-all duration-300 hover:scale-105 hover:z-50 cursor-pointer border border-white/5 flex flex-col relative group"
+      className={`bg-[#111111] rounded-2xl overflow-hidden shadow-lg transition-all duration-300 hover:scale-105 hover:z-50 cursor-pointer border flex flex-col relative group ${isChorume ? 'border-green-900/40 hover:border-green-500 hover:shadow-[0_0_30px_rgba(34,197,94,0.2)]' : isObraPrima ? 'border-yellow-900/40 hover:border-yellow-500 hover:shadow-[0_0_30px_rgba(234,179,8,0.2)]' : 'border-white/5 hover:border-red-500/50'}`}
     >
       <Link 
         href={isDiario ? '#' : `/filme/${filme.id}`} 
@@ -51,13 +55,36 @@ export default function CartaoFilme({ filme, veredito, dataLabel, isSugestao, is
             </div>
           )}
 
-          {filme.seloJaAssistido && (
-            <div className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-gradient-to-r from-yellow-500 to-yellow-600 text-black text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg shadow-xl flex items-center gap-1 z-20 border border-yellow-300">
-              <span>🥇</span> Selo do Indic.: {filme.notaAutor}/10
-            </div>
-          )}
+          {/* 🪄 CONTAINER PARA OS BADGES DA PONTA SUPERIOR ESQUERDA */}
+          <div className="absolute top-2 left-2 sm:top-3 sm:left-3 flex flex-col gap-1.5 items-start z-30 pointer-events-none">
+            
+            {filme.seloJaAssistido && (
+              <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-black text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg shadow-xl flex items-center gap-1 border border-yellow-300">
+                <span>🥇</span> Selo do Indic.: {filme.notaAutor}/10
+              </div>
+            )}
 
-          <img src={filme.capa} alt={filme.titulo} className={`w-full h-full object-cover transition-opacity duration-700 ${mostrarVideo ? 'opacity-0' : 'opacity-100'}`} />
+            {/* ✨ SELO DE OBRA-PRIMA ANIMADO */}
+            {isObraPrima && (
+              <div className="bg-yellow-950/90 backdrop-blur-md border border-yellow-500/50 text-yellow-400 text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg shadow-[0_0_20px_rgba(234,179,8,0.5)] flex items-center gap-1.5 transition-transform group-hover:scale-110">
+                <span className="text-[12px] sm:text-sm animate-pulse drop-shadow-[0_0_5px_rgba(234,179,8,0.8)]">✨</span> Obra-Prima
+              </div>
+            )}
+
+            {/* 💩 SELO DE CHORUME ANIMADO */}
+            {isChorume && (
+              <div className="bg-green-950/90 backdrop-blur-md border border-green-500/50 text-green-400 text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg shadow-[0_0_20px_rgba(34,197,94,0.5)] flex items-center gap-1.5 transition-transform group-hover:scale-110">
+                <span className="text-[12px] sm:text-sm animate-bounce drop-shadow-[0_0_5px_rgba(34,197,94,0.8)]">💩</span> Chorume
+              </div>
+            )}
+
+          </div>
+
+          <img 
+            src={filme.capa} 
+            alt={filme.titulo} 
+            className={`w-full h-full object-cover transition-all duration-700 ${mostrarVideo ? 'opacity-0' : 'opacity-100'} ${isChorume ? 'saturate-50 opacity-80 group-hover:saturate-100 group-hover:opacity-100' : isObraPrima ? 'group-hover:scale-110 group-hover:saturate-150' : ''}`} 
+          />
 
           {mostrarVideo && !isDiario && (
             <div className="absolute inset-0 w-full h-full">
@@ -82,9 +109,9 @@ export default function CartaoFilme({ filme, veredito, dataLabel, isSugestao, is
           )}
         </div>
 
-        <div className="p-4 flex-1 flex flex-col justify-between">
+        <div className="p-4 flex-1 flex flex-col justify-between relative z-20 bg-[#111111]">
           <div>
-            <h3 className="text-sm font-bold line-clamp-2 mb-3 group-hover:text-red-500 transition-colors uppercase tracking-tighter">
+            <h3 className={`text-sm font-bold line-clamp-2 mb-3 uppercase tracking-tighter transition-colors ${isChorume ? 'group-hover:text-green-500' : isObraPrima ? 'group-hover:text-yellow-500' : 'group-hover:text-red-500'}`}>
               {filme.titulo}
             </h3>
             
@@ -95,7 +122,7 @@ export default function CartaoFilme({ filme, veredito, dataLabel, isSugestao, is
                   e.stopPropagation(); 
                   router.push(`/perfil/${filme.sugeridoPor?.uid}`); 
                 }}
-                className="flex items-center gap-2 mb-3 bg-white/5 hover:bg-white/10 p-1.5 pr-3 rounded-lg border border-white/5 w-fit transition-colors group/autor z-40 relative cursor-pointer"
+                className={`flex items-center gap-2 mb-3 bg-white/5 hover:bg-white/10 p-1.5 pr-3 rounded-lg border border-white/5 w-fit transition-colors group/autor relative cursor-pointer ${isChorume ? 'hover:border-green-500/30' : isObraPrima ? 'hover:border-yellow-500/30' : ''}`}
               >
                 {fotoIndicador ? (
                   <img src={fotoIndicador} alt={nomeIndicador} className="w-5 h-5 rounded-full object-cover border border-white/10 shadow-sm group-hover/autor:border-blue-400 transition-colors" />
@@ -112,8 +139,8 @@ export default function CartaoFilme({ filme, veredito, dataLabel, isSugestao, is
             
             <div className="flex flex-wrap items-center justify-between gap-y-2 mb-1">
               <div className="flex items-center gap-1 font-bold">
-                <span className="text-yellow-500 text-xs">⭐</span>
-                <span className="text-white text-sm font-black">{notaExibida}</span>
+                <span className={isChorume ? "text-green-500 text-xs" : "text-yellow-500 text-xs"}>⭐</span>
+                <span className={`text-sm font-black ${isChorume ? 'text-green-400' : isObraPrima ? 'text-yellow-400' : 'text-white'}`}>{notaExibida}</span>
                 <span className="text-gray-600 text-[10px]">/ 10</span>
               </div>
               

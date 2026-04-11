@@ -11,6 +11,9 @@ export default function AreaUpvote({ filmeId }) {
   const [upvotes, setUpvotes] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [processando, setProcessando] = useState(false);
+  
+  // 🪄 NOVO: ESTADO PARA SALVAR QUEM INDICOU O FILME
+  const [donoFilme, setDonoFilme] = useState(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => setUsuario(user));
@@ -20,8 +23,10 @@ export default function AreaUpvote({ filmeId }) {
   useEffect(() => {
     async function buscarVotos() {
       const filmeSnap = await getDoc(doc(db, "filmes", filmeId));
-      if (filmeSnap.exists() && filmeSnap.data().upvotes) {
-        setUpvotes(filmeSnap.data().upvotes);
+      if (filmeSnap.exists()) {
+        if (filmeSnap.data().upvotes) setUpvotes(filmeSnap.data().upvotes);
+        // 🪄 DESCOBRE QUEM É O DONO DO FILME
+        setDonoFilme(filmeSnap.data().sugeridoPor?.uid);
       }
       setCarregando(false);
     }
@@ -41,46 +46,59 @@ export default function AreaUpvote({ filmeId }) {
 
     try {
       if (jaVotou) {
+        // TIRA O VOTO
         await updateDoc(filmeRef, { upvotes: arrayRemove(usuario.uid) });
         setUpvotes(upvotes.filter(id => id !== usuario.uid));
         
-        const userSnap = await getDoc(userRef);
-        if (userSnap.exists()) {
-          let progresso = userSnap.data().votosParaIngresso || 0;
-          if (progresso > 0) {
-            await updateDoc(userRef, { votosParaIngresso: progresso - 1 });
+        // 🪄 ANTI-FARM: Só tira o ponto se o filme NÃO for seu
+        if (donoFilme !== usuario.uid) {
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+            let progresso = userSnap.data().votosParaIngresso || 0;
+            if (progresso > 0) {
+              await updateDoc(userRef, { votosParaIngresso: progresso - 1 });
+            }
           }
         }
       } else {
+        // ADICIONA O VOTO
         await updateDoc(filmeRef, { upvotes: arrayUnion(usuario.uid) });
         setUpvotes([...upvotes, usuario.uid]);
 
-        const userSnap = await getDoc(userRef);
-        let progresso = 0;
-        let ingressos = 0;
-
-        if (userSnap.exists()) {
-          progresso = userSnap.data().votosParaIngresso || 0;
-          ingressos = userSnap.data().ingressosDourados || 0;
-        }
-
-        progresso += 1;
-
-        if (progresso >= 20) {
-          progresso = 0;
-          ingressos += 1;
-          toast.success("🎫 INGRESSO DOURADO GANHO!\nVocê ajudou a galera 20 vezes!", { 
-            duration: 6000, 
-            style: { background: '#ca8a04', color: '#fff', fontWeight: '900', textTransform: 'uppercase', textAlign: 'center', fontSize: '12px' }
+        // 🪄 ANTI-FARM: Verifica se o filme é seu
+        if (donoFilme === usuario.uid) {
+          toast("Voto registrado! (Seus filmes não dão pontos 😅)", { 
+            icon: '🔥', style: { background: '#111', color: '#fff', fontSize: '11px', border: '1px solid #333' } 
           });
         } else {
-          toast(`🔥 +1 Ponto! Faltam ${20 - progresso} para o Ingresso Dourado.`, { 
-            icon: '🔥', 
-            style: { background: '#111', color: '#fff', fontSize: '11px', fontWeight: 'bold', border: '1px solid #333' } 
-          });
-        }
+          // Se não for seu, ganha o ponto para a meta de 20!
+          const userSnap = await getDoc(userRef);
+          let progresso = 0;
+          let ingressos = 0;
 
-        await setDoc(userRef, { votosParaIngresso: progresso, ingressosDourados: ingressos }, { merge: true });
+          if (userSnap.exists()) {
+            progresso = userSnap.data().votosParaIngresso || 0;
+            ingressos = userSnap.data().ingressosDourados || 0;
+          }
+
+          progresso += 1;
+
+          if (progresso >= 20) {
+            progresso = 0;
+            ingressos += 1;
+            toast.success("🎫 INGRESSO DOURADO GANHO!\nVocê ajudou a galera 20 vezes!", { 
+              duration: 6000, 
+              style: { background: '#ca8a04', color: '#fff', fontWeight: '900', textTransform: 'uppercase', textAlign: 'center', fontSize: '12px' }
+            });
+          } else {
+            toast(`🔥 +1 Ponto! Faltam ${20 - progresso} para o Ingresso Dourado.`, { 
+              icon: '🔥', 
+              style: { background: '#111', color: '#fff', fontSize: '11px', fontWeight: 'bold', border: '1px solid #333' } 
+            });
+          }
+
+          await setDoc(userRef, { votosParaIngresso: progresso, ingressosDourados: ingressos }, { merge: true });
+        }
       }
     } catch (error) {
       console.error(error);
