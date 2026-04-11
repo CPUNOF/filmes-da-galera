@@ -13,29 +13,28 @@ async function calcMedia(filmeId) {
   const totalVotos = votosSnap.size;
   if (totalVotos === 0) return 0;
   let soma = 0;
-  votosSnap.forEach(doc => soma += Number(doc.data().nota));
+  votosSnap.forEach(documento => soma += Number(documento.data().nota));
   return (soma / totalVotos).toFixed(1);
 }
 
 export default function AreaVotacao({ filmeId }) {
   const [user, setUser] = useState(null);
-  const [novaNota, setNovaNota] = useState(null); // Nota selecionada localmente
-  const [votoUsuario, setVotoUsuario] = useState(null); // Voto salvo no DB
+  const [novaNota, setNovaNota] = useState(null); 
+  const [votoUsuario, setVotoUsuario] = useState(null); 
   const [salvando, setSalvando] = useState(false);
   
-  // 🪄 ESTADO PARA O ÍCONE DE FEEDBACK ANIMADO
-  const [feedbackIcon, setFeedbackIcon] = useState(null); // 'trophy', 'poop', null
+  // ESTADO PARA O ÍCONE DE FEEDBACK ANIMADO
+  const [feedbackIcon, setFeedbackIcon] = useState(null); 
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        // Busca o voto existente do usuário
         const votoRef = doc(db, `filmes/${filmeId}/votos/${currentUser.uid}`);
         getDoc(votoRef).then(snap => {
           if (snap.exists()) {
             setVotoUsuario(Number(snap.data().nota));
-            setNovaNota(Number(snap.data().nota)); // Pré-seleciona a nota salva
+            setNovaNota(Number(snap.data().nota)); 
           }
         });
       }
@@ -45,20 +44,25 @@ export default function AreaVotacao({ filmeId }) {
 
   const handleVotar = async () => {
     if (!user) {
-      toast.error("Você precisa estar logado para votar!");
+      toast.error("Você precisa de iniciar sessão para avaliar!");
       return;
     }
     if (novaNota === null) {
-      toast.error("Selecione uma nota antes de votar!");
+      toast.error("Selecione uma nota antes de avaliar!");
       return;
     }
     if (novaNota === votoUsuario) {
-      toast("Sua nota já é essa.", { icon: '🤔' });
+      toast("A sua nota já é essa.", { icon: '🤔' });
       return;
     }
 
     setSalvando(true);
     const votoRef = doc(db, `filmes/${filmeId}/votos/${user.uid}`);
+    const userRef = doc(db, "usuarios", user.email.toLowerCase());
+    
+    // Verifica se é a primeira vez que vota neste filme
+    const isNovoVoto = votoUsuario === null;
+
     try {
       // Salva ou Atualiza o voto
       await setDoc(votoRef, {
@@ -72,10 +76,41 @@ export default function AreaVotacao({ filmeId }) {
       const media = await calcMedia(filmeId);
       await updateDoc(doc(db, "filmes", filmeId), { notaGeral: media });
 
-      setVotoUsuario(novaNota); // Atualiza o estado do voto salvo
-      toast.success("Voto computado!");
+      setVotoUsuario(novaNota); 
 
-      // 🪄 ACIONA A ANIMAÇÃO CIRÚRGICA DE FEEDBACK
+      // 🪄 LÓGICA DO INGRESSO DOURADO: Só ganha pontos se for a primeira vez a avaliar este filme
+      if (isNovoVoto) {
+        const userSnap = await getDoc(userRef);
+        let progresso = 0;
+        let ingressos = 0;
+
+        if (userSnap.exists()) {
+          progresso = userSnap.data().votosParaIngresso || 0;
+          ingressos = userSnap.data().ingressosDourados || 0;
+        }
+
+        progresso += 1;
+
+        if (progresso >= 5) {
+          progresso = 0;
+          ingressos += 1;
+          toast.success("🎫 INGRESSO DOURADO GANHO!\\nVocê avaliou 5 filmes da Galera!", { 
+            duration: 6000, 
+            style: { background: '#ca8a04', color: '#fff', fontWeight: '900', textTransform: 'uppercase', textAlign: 'center', fontSize: '12px' }
+          });
+        } else {
+          toast(`⭐ Avaliação Salva! +1 Ponto!\\nFaltam ${5 - progresso} para o Ingresso Dourado.`, { 
+            icon: '🎟️', 
+            style: { background: '#111', color: '#fff', fontSize: '11px', fontWeight: 'bold', border: '1px solid #333' } 
+          });
+        }
+
+        await setDoc(userRef, { votosParaIngresso: progresso, ingressosDourados: ingressos }, { merge: true });
+      } else {
+        toast.success("Avaliação atualizada com sucesso!");
+      }
+
+      // ACIONA A ANIMAÇÃO CIRÚRGICA DE FEEDBACK
       if (novaNota >= 9) {
         setFeedbackIcon('trophy');
       } else if (novaNota <= 5) {
@@ -87,7 +122,7 @@ export default function AreaVotacao({ filmeId }) {
 
     } catch (error) {
       console.error(error);
-      toast.error("Erro ao salvar voto.");
+      toast.error("Erro ao guardar a avaliação.");
     } finally {
       setSalvando(false);
     }
@@ -98,7 +133,7 @@ export default function AreaVotacao({ filmeId }) {
   return (
     <>
       <style>{`
-        /* 🪄 ANIMAÇÕES CIRÚRGICAS FDG PREMIUM */
+        /* ANIMAÇÕES CIRÚRGICAS FDG PREMIUM */
         @keyframes popAndGlow {
           0% { transform: translate(-50%, -50%) scale(0) rotate(-20deg); opacity: 0; }
           60% { transform: translate(-50%, -50%) scale(1.3) rotate(5deg); opacity: 1; }
@@ -130,7 +165,7 @@ export default function AreaVotacao({ filmeId }) {
       {/* Interface de Votos Estilizada */}
       <div className="bg-black/40 p-6 rounded-2xl border border-white/5 shadow-inner relative overflow-hidden min-h-[220px]">
         
-        {/* 🪄 CONDITIONAL RENDER DO ÍCONE DE FEEDBACK ANIMADO */}
+        {/* CONDITIONAL RENDER DO ÍCONE DE FEEDBACK ANIMADO */}
         {feedbackIcon && (
           <div className="feedback-overlay">
             {feedbackIcon === 'trophy' && <span className="icon-trophy">🏆</span>}
@@ -142,7 +177,7 @@ export default function AreaVotacao({ filmeId }) {
         <div className={`transition-all duration-300 ${feedbackIcon ? 'blur-sm opacity-30' : ''}`}>
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 mb-5 text-center flex items-center justify-center gap-2">
             <span className="w-6 h-[1px] bg-gray-800"></span> 
-            {user ? "Sua Avaliação Livre" : "Logue para Avaliar"}
+            {user ? "Sua Avaliação Livre" : "Inicie Sessão para Avaliar"}
             <span className="w-6 h-[1px] bg-gray-800"></span>
           </p>
           
@@ -172,7 +207,7 @@ export default function AreaVotacao({ filmeId }) {
                 : "bg-white text-black hover:bg-red-600 hover:text-white cursor-pointer"
             } ${(!user || novaNota === votoUsuario || novaNota === null) && 'bg-gray-800 text-gray-600 cursor-not-allowed'}`}
           >
-            {salvando ? "Processando no Cofre..." : (votoUsuario ? "Atualizar Voto" : "Confirmar Voto")}
+            {salvando ? "A processar no Cofre..." : (votoUsuario ? "Atualizar Avaliação" : "Confirmar Avaliação")}
           </button>
         </div>
       </div>

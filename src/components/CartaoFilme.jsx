@@ -2,20 +2,19 @@
 "use client";
 import { useState, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation"; 
 
-export default function CartaoFilme({ filme, veredito, dataLabel, isSugestao }) {
+export default function CartaoFilme({ filme, veredito, dataLabel, isSugestao, isDiario, onClickDiario }) {
+  const router = useRouter(); 
   const totalVotos = filme.upvotes?.length || filme.quantidadeVotos || 0;
   const [mostrarVideo, setMostrarVideo] = useState(false);
   const timerRef = useRef(null);
 
-  // 🪄 EXTRAÇÃO SEGURA DO NOME E DA FOTO DO INDICADOR
   const autorRaw = filme.usuarioNome || filme.sugeridoPor || filme.autor;
-  const nomeIndicador = typeof autorRaw === 'object' && autorRaw !== null 
-    ? (autorRaw.nome || autorRaw.displayName || "Desconhecido") 
-    : autorRaw;
-  const fotoIndicador = typeof autorRaw === 'object' && autorRaw !== null 
-    ? (autorRaw.foto || autorRaw.photoURL || autorRaw.usuarioFoto) 
-    : null;
+  const nomeIndicador = typeof autorRaw === 'object' && autorRaw !== null ? (autorRaw.nome || autorRaw.displayName || "Desconhecido") : autorRaw;
+  const fotoIndicador = typeof autorRaw === 'object' && autorRaw !== null ? (autorRaw.foto || autorRaw.photoURL || autorRaw.usuarioFoto) : null;
+
+  const notaExibida = isDiario ? filme.notaPessoal : (isSugestao ? (filme.notaTMDB || "?") : (filme.notaGeral || 0));
 
   const handleMouseEnter = () => {
     if (filme.trailerKey) {
@@ -30,28 +29,55 @@ export default function CartaoFilme({ filme, veredito, dataLabel, isSugestao }) 
 
   return (
     <div 
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
+      onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}
       className="bg-[#111111] rounded-2xl overflow-hidden shadow-lg transition-all duration-300 hover:scale-105 hover:z-50 cursor-pointer border border-white/5 flex flex-col relative group"
     >
-      <Link href={`/filme/${filme.id}`} className="flex flex-col h-full">
+      <Link 
+        href={isDiario ? '#' : `/filme/${filme.id}`} 
+        className="flex flex-col h-full" 
+        onClick={(e) => {
+          if (isDiario) {
+            e.preventDefault();
+            if (onClickDiario) onClickDiario(filme);
+          }
+        }}
+      >
         <div className="relative h-64 sm:h-80 overflow-hidden bg-black">
-          <img 
-            src={filme.capa} alt={filme.titulo}
-            className={`w-full h-full object-cover transition-opacity duration-700 ${mostrarVideo ? 'opacity-0' : 'opacity-100'}`} 
-          />
-          {mostrarVideo && (
-            <div className="absolute inset-0 w-full h-full">
-              <iframe
-                className="w-full h-full pointer-events-none scale-150" 
-                src={`https://www.youtube.com/embed/${filme.trailerKey}?autoplay=1&mute=1&controls=0&loop=1&playlist=${filme.trailerKey}&modestbranding=1`}
-                frameBorder="0" allow="autoplay"
-              ></iframe>
+          
+          {/* 🪄 O SELO DO INGRESSO DOURADO (FURA-FILA) */}
+          {filme.ingressoDourado && !isDiario && (
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 bg-gradient-to-b from-yellow-400 to-yellow-600 text-black text-[8px] font-black uppercase tracking-widest px-4 py-1.5 rounded-b-xl shadow-[0_0_30px_rgba(234,179,8,0.9)] z-30 flex items-center gap-1 border-x border-b border-yellow-200">
+              <span className="text-[10px] animate-pulse">🎫</span> Fura-Fila
             </div>
           )}
-          {!mostrarVideo && filme.dataLancamento && (
-            <div className="absolute top-3 right-3 bg-black/70 backdrop-blur-md text-gray-300 text-[10px] font-bold px-2 py-1 rounded-md border border-white/10">
-              {filme.dataLancamento.substring(0, 4)}
+
+          {filme.seloJaAssistido && (
+            <div className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-gradient-to-r from-yellow-500 to-yellow-600 text-black text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg shadow-xl flex items-center gap-1 z-20 border border-yellow-300">
+              <span>🥇</span> Selo do Indic.: {filme.notaAutor}/10
+            </div>
+          )}
+
+          <img src={filme.capa} alt={filme.titulo} className={`w-full h-full object-cover transition-opacity duration-700 ${mostrarVideo ? 'opacity-0' : 'opacity-100'}`} />
+
+          {mostrarVideo && !isDiario && (
+            <div className="absolute inset-0 w-full h-full">
+              <iframe className="w-full h-full pointer-events-none scale-150" src={`https://www.youtube.com/embed/${filme.trailerKey}?autoplay=1&mute=1&controls=0&loop=1&playlist=${filme.trailerKey}&modestbranding=1`} frameBorder="0" allow="autoplay"></iframe>
+            </div>
+          )}
+
+          {/* ANO E DURAÇÃO */}
+          {!mostrarVideo && (
+            <div className="absolute top-3 right-3 flex flex-col gap-1.5 items-end z-10">
+              {filme.dataLancamento && (
+                <div className="bg-black/70 backdrop-blur-md text-gray-300 text-[10px] font-bold px-2 py-1 rounded-md border border-white/10 shadow-lg">
+                  {filme.dataLancamento.substring(0, 4)}
+                </div>
+              )}
+              {filme.duracao > 0 && (
+                <div className="bg-black/70 backdrop-blur-md text-gray-300 text-[9px] font-bold px-2 py-1 rounded-md border border-white/10 shadow-lg flex items-center gap-1">
+                  <span>⏱️</span> {Math.floor(filme.duracao / 60)}h {filme.duracao % 60}m
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -62,12 +88,14 @@ export default function CartaoFilme({ filme, veredito, dataLabel, isSugestao }) 
               {filme.titulo}
             </h3>
             
-            {/* 🪄 QUEM INDICOU O FILME (COM FOTO) */}
-            {nomeIndicador && (
-              <Link 
-                href={`/perfil/${filme.sugeridoPor?.uid}`} 
-                className="flex items-center gap-2 mb-3 bg-white/5 hover:bg-white/10 p-1.5 pr-3 rounded-lg border border-white/5 w-fit transition-colors group/autor z-40 relative"
-                onClick={(e) => e.stopPropagation()} // Impede de abrir o filme ao clicar no autor
+            {!isDiario && nomeIndicador && (
+              <div 
+                onClick={(e) => {
+                  e.preventDefault(); 
+                  e.stopPropagation(); 
+                  router.push(`/perfil/${filme.sugeridoPor?.uid}`); 
+                }}
+                className="flex items-center gap-2 mb-3 bg-white/5 hover:bg-white/10 p-1.5 pr-3 rounded-lg border border-white/5 w-fit transition-colors group/autor z-40 relative cursor-pointer"
               >
                 {fotoIndicador ? (
                   <img src={fotoIndicador} alt={nomeIndicador} className="w-5 h-5 rounded-full object-cover border border-white/10 shadow-sm group-hover/autor:border-blue-400 transition-colors" />
@@ -79,23 +107,23 @@ export default function CartaoFilme({ filme, veredito, dataLabel, isSugestao }) 
                 <p className="text-[7px] text-gray-400 uppercase tracking-widest leading-tight group-hover/autor:text-white transition-colors">
                   Indicação<br/><span className="text-gray-200 font-black text-[8px]">{nomeIndicador}</span>
                 </p>
-              </Link>
+              </div>
             )}
             
             <div className="flex flex-wrap items-center justify-between gap-y-2 mb-1">
               <div className="flex items-center gap-1 font-bold">
                 <span className="text-yellow-500 text-xs">⭐</span>
-                <span className="text-white text-sm font-black">{isSugestao ? (filme.notaTMDB || "?") : (filme.notaGeral || 0)}</span>
+                <span className="text-white text-sm font-black">{notaExibida}</span>
                 <span className="text-gray-600 text-[10px]">/ 10</span>
               </div>
               
               <div className="flex items-center gap-1.5">
-                {isSugestao && (
+                {isSugestao && !isDiario && (
                   <span className="bg-orange-900/40 border border-orange-500/30 text-orange-400 text-[9px] font-black uppercase px-2 py-0.5 rounded-sm flex items-center gap-1 shadow-inner">
                     🔥 {totalVotos}
                   </span>
                 )}
-                {veredito && (
+                {veredito && !isDiario && (
                   <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-sm border leading-none ${veredito.cor}`}>
                     {veredito.texto}
                   </span>
@@ -104,11 +132,17 @@ export default function CartaoFilme({ filme, veredito, dataLabel, isSugestao }) 
             </div>
           </div>
           
-          {dataLabel && (
-            <div className="text-[9px] font-bold text-gray-500 border-t border-white/5 pt-3 mt-3 flex items-center gap-1 uppercase tracking-widest">
-              <span className="opacity-70">📅</span> 
-              <span>{isSugestao ? dataLabel : `Visto em ${dataLabel}`}</span>
+          {isDiario ? (
+            <div className="text-[9px] font-bold text-gray-500 border-t border-white/5 pt-3 mt-3 flex items-center gap-1 uppercase tracking-widest group-hover:text-blue-400 transition-colors">
+              <span className="opacity-70">🚀</span> Sugerir para o Grupo
             </div>
+          ) : (
+            dataLabel && (
+              <div className="text-[9px] font-bold text-gray-500 border-t border-white/5 pt-3 mt-3 flex items-center gap-1 uppercase tracking-widest">
+                <span className="opacity-70">📅</span> 
+                <span>{isSugestao ? dataLabel : `Visto em ${dataLabel}`}</span>
+              </div>
+            )
           )}
         </div>
       </Link>

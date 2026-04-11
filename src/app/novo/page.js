@@ -7,8 +7,10 @@ import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, addDoc, query, where, getDocs, doc, getDoc } from "firebase/firestore";
+import { collection, addDoc, query, where, getDocs, doc, getDoc, updateDoc, onSnapshot } from "firebase/firestore";
 import toast from "react-hot-toast";
+
+const TMDB_API_KEY = "5e0b606e87348f0592b761526df56825";
 
 const MAPA_GENEROS = {
   28: "Ação", 12: "Aventura", 16: "Animação", 35: "Comédia", 80: "Crime", 
@@ -21,10 +23,24 @@ const MAPA_GENEROS = {
 export default function NovoFilme() {
   const [usuario, setUsuario] = useState(null);
   const [busca, setBusca] = useState("");
+  const [modoBusca, setModoBusca] = useState("titulo"); 
   const [resultados, setResultados] = useState([]);
   const [buscando, setBuscando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [filmeSelecionado, setFilmeSelecionado] = useState(null);
+  
+  const [jaAssisti, setJaAssisti] = useState(false);
+  const [minhaNota, setMinhaNota] = useState(0);
+
+  // 🪄 ESTADOS DO INGRESSO DOURADO
+  const [meusIngressos, setMeusIngressos] = useState(0);
+  const [usarIngresso, setUsarIngresso] = useState(false);
+
+  const [recomendados, setRecomendados] = useState([]);
+  const [motivoRecomendacao, setMotivoRecomendacao] = useState("");
+  
+  const [acervoIds, setAcervoIds] = useState({}); 
+
   const router = useRouter();
 
   useEffect(() => {
@@ -32,100 +48,230 @@ export default function NovoFilme() {
     return () => unsubscribe();
   }, []);
 
+// 🪄 BUSCA A CARTEIRA DE INGRESSOS DO USUÁRIO EM TEMPO REAL
+  useEffect(() => {
+    if (!usuario) return;
+    
+    // Agora é um túnel ao vivo! Se ganhar o ingresso, a caixa aparece na mesma hora.
+    const unsubscribe = onSnapshot(doc(db, "usuarios", usuario.email.toLowerCase()), (snap) => {
+      if (snap.exists()) {
+        setMeusIngressos(snap.data().ingressosDourados || 0);
+      }
+    });
+    
+    return () => unsubscribe();
+  }, [usuario]);
+  useEffect(() => {
+    async function carregarInteligenciaEAcervo() {
+      try {
+        const snapFilmes = await getDocs(collection(db, "filmes"));
+        const filmesBons = [];
+        const idsGuardados = {}; 
+        
+        snapFilmes.forEach(doc => {
+          const data = doc.data();
+          idsGuardados[data.tmdbId] = data.status; 
+          
+          if (data.status === "assistido" && Number(data.notaGeral) >= 7) {
+            filmesBons.push(data);
+          }
+        });
+
+        setAcervoIds(idsGuardados);
+
+        let url = `https://api.themoviedb.org/3/trending/movie/week?api_key=${TMDB_API_KEY}&language=pt-BR`;
+        let motivo = "Filmes em alta no mundo esta semana";
+
+        if (filmesBons.length > 0) {
+          const filmeBase = filmesBons[Math.floor(Math.random() * filmesBons.length)];
+          url = `https://api.themoviedb.org/3/movie/${filmeBase.tmdbId}/recommendations?api_key=${TMDB_API_KEY}&language=pt-BR`;
+          motivo = `Porque a galera curtiu "${filmeBase.titulo}"`;
+        }
+
+        const res = await fetch(url);
+        const data = await res.json();
+        
+        if (data.results && data.results.length > 0) {
+          setRecomendados(data.results.filter(f => f.poster_path).slice(0, 10));
+          setMotivoRecomendacao(motivo);
+        }
+      } catch (error) {
+        console.error("Erro na recomendação:", error);
+      }
+    }
+    carregarInteligenciaEAcervo();
+  }, []);
+
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (busca.trim().length > 2) {
-        realizarBuscaAuto(busca);
+      if (busca.trim().length >= 3) { 
+        realizarBuscaAuto(busca, modoBusca);
       } else if (busca.trim().length === 0) {
         setResultados([]); 
       }
-    }, 600); 
+    }, 800); 
     return () => clearTimeout(timer);
-  }, [busca]);
+  }, [busca, modoBusca]);
 
-  const realizarBuscaAuto = async (termo) => {
+  const realizarBuscaAuto = async (termo, modo) => {
     setBuscando(true);
     try {
-      const res = await fetch(`/api/tmdb?q=${termo}`);
-      const dados = await res.json();
-      setResultados(dados.filter(filme => filme.poster_path)); 
+      let url = "";
+      
+      if (modo === "titulo") {
+        url = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(termo)}&language=pt-BR`;
+      } else if (modo === "ano") {
+        if (termo.length === 4 && !isNaN(termo)) {
+          url = `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_API_KEY}&primary_release_year=${termo}&language=pt-BR&sort_by=popularity.desc`;
+        } else {
+          setBuscando(false);
+          return; 
+        }
+      } else if (modo === "ator") {
+        const resAtor = await fetch(`https://api.themoviedb.org/3/search/person?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(termo)}&language=pt-BR`);
+        const dadosAtor = await resAtor.json();
+        
+        if (dadosAtor.results && dadosAtor.results.length > 0) {
+          const atorId = dadosAtor.results[0].id;
+          url = `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_API_KEY}&with_cast=${atorId}&language=pt-BR&sort_by=popularity.desc`;
+        } else {
+          setResultados([]);
+          setBuscando(false);
+          return;
+        }
+      }
+
+      if (url) {
+        const res = await fetch(url);
+        const dados = await res.json();
+        setResultados(dados.results.filter(filme => filme.poster_path)); 
+      }
     } catch (error) {
-      toast.error("Erro ao buscar filmes.");
+      toast.error("Erro ao buscar no acervo mundial.");
     } finally {
       setBuscando(false);
     }
   };
 
-  const confirmarESalvarFilme = async () => {
-    if (!usuario) {
-      toast.error("Você precisa estar logado para indicar um filme!");
-      return;
-    }
+  const selecionarFilme = (filme) => {
+    setFilmeSelecionado(filme);
+    setUsarIngresso(false); // Reseta o uso do ingresso ao trocar de filme
+    setJaAssisti(false);
+    setMinhaNota(0);
+  };
+
+  const confirmarESalvarFilme = async (destino) => {
+    if (!usuario) return toast.error("Você precisa estar logado!");
     if (!filmeSelecionado) return;
+    if (jaAssisti && minhaNota === 0) return toast.error("Por favor, selecione a sua nota!");
+
+    if (destino === "grupo" && acervoIds[filmeSelecionado.id]) {
+      return toast.error("Este filme já está no acervo da galera!");
+    }
 
     setSalvando(true);
     const t = toast.loading("Verificando autorização...");
 
     try {
-      // 🛑 NOVA TRAVA DE SEGURANÇA: Só membros ou admins podem indicar
       const membroSnap = await getDoc(doc(db, "membros", usuario.email));
       const adminSnap = await getDoc(doc(db, "admins", usuario.email));
 
       if (!membroSnap.exists() && !adminSnap.exists()) {
         toast.dismiss(t);
-        toast.error("Acesso Negado! Seu e-mail não está na lista de Convidados Autorizados.");
-        setSalvando(false);
-        return; 
+        return toast.error("Acesso Negado! E-mail não está na Whitelist.");
       }
 
-      toast.loading("Checando o acervo...", { id: t });
+      toast.loading("Checando diário pessoal...", { id: t });
 
-      // 🛑 TRAVA ANTI-DUPLICATAS PRESERVADA
-      const q = query(collection(db, "filmes"), where("tmdbId", "==", filmeSelecionado.id));
-      const querySnapshot = await getDocs(q);
-
-      if (!querySnapshot.empty) {
-        toast.dismiss(t);
-        toast.error("Ops! A galera já indicou ou assistiu esse filme.");
-        setSalvando(false);
-        return; 
+      if (destino === "pessoal") {
+        const qPessoal = query(collection(db, "filmes_pessoais"), where("tmdbId", "==", filmeSelecionado.id), where("sugeridoPor.uid", "==", usuario.uid));
+        const snapPessoal = await getDocs(qPessoal);
+        if (!snapPessoal.empty) {
+          toast.dismiss(t);
+          setSalvando(false);
+          return toast.error("Você já salvou esse filme no seu Diário!");
+        }
       }
 
-      toast.loading("Preparando os rolos de filme...", { id: t }); 
+      toast.loading("Gravando os dados...", { id: t }); 
       
-      const resTrailer = await fetch(`/api/tmdb/trailer?id=${filmeSelecionado.id}`);
-      const { key } = await resTrailer.json();
-      const nomesGeneros = filmeSelecionado.genre_ids.map(id => MAPA_GENEROS[id]).filter(Boolean);
+      const resDetails = await fetch(`https://api.themoviedb.org/3/movie/${filmeSelecionado.id}?api_key=${TMDB_API_KEY}&language=pt-BR`);
+      const dataDetails = await resDetails.json();
+      const duracaoFilme = dataDetails.runtime || 0;
 
-      const novoFilme = {
+      const resTrailer = await fetch(`https://api.themoviedb.org/3/movie/${filmeSelecionado.id}/videos?api_key=${TMDB_API_KEY}&language=pt-BR`);
+      const dataTrailer = await resTrailer.json();
+      let videoKey = null;
+      if (dataTrailer.results && dataTrailer.results.length > 0) {
+        const trailer = dataTrailer.results.find(v => v.type === "Trailer" && v.site === "YouTube") || dataTrailer.results[0];
+        videoKey = trailer.key;
+      }
+
+      const nomesGeneros = filmeSelecionado.genre_ids ? filmeSelecionado.genre_ids.map(id => MAPA_GENEROS[id]).filter(Boolean) : [];
+
+      const novoFilmeBase = {
         tmdbId: filmeSelecionado.id,
         titulo: filmeSelecionado.title,
         capa: `https://image.tmdb.org/t/p/w500${filmeSelecionado.poster_path}`,
-        sinopse: filmeSelecionado.overview || "Sinopse não disponível em português.",
+        sinopse: filmeSelecionado.overview || "Sinopse não disponível.",
         generos: nomesGeneros,
-        trailerKey: key || null,
-        dataLancamento: filmeSelecionado.release_date,
-        status: "sugerido",
-        notaGeral: 0,
-        notaTMDB: filmeSelecionado.vote_average ? filmeSelecionado.vote_average.toFixed(1) : "N/A",
-        quantidadeVotos: 0,
-        sugeridoPor: {
-          nome: usuario.displayName,
-          foto: usuario.photoURL,
-          uid: usuario.uid
-        },
+        duracao: duracaoFilme, 
+        trailerKey: videoKey,
+        dataLancamento: filmeSelecionado.release_date || "",
+        sugeridoPor: { nome: usuario.displayName, foto: usuario.photoURL, uid: usuario.uid },
         dataCriacao: new Date().toISOString()
       };
 
-      await addDoc(collection(db, "filmes"), novoFilme);
-      
-      toast.dismiss(t);
-      toast.success("Sucesso! O filme foi para a fila de Sugestões.");
+      if (destino === "grupo") {
+        const filmeParaGrupo = { ...novoFilmeBase };
+        filmeParaGrupo.status = "sugerido";
+        filmeParaGrupo.notaGeral = 0;
+        filmeParaGrupo.notaTMDB = filmeSelecionado.vote_average ? filmeSelecionado.vote_average.toFixed(1) : "N/A";
+        filmeParaGrupo.quantidadeVotos = 0;
+        
+        // 🪄 APLICA O FURA-FILA E DESCONTA DA CARTEIRA
+        if (usarIngresso && meusIngressos > 0) {
+          filmeParaGrupo.ingressoDourado = true;
+          await updateDoc(doc(db, "usuarios", usuario.email.toLowerCase()), {
+            ingressosDourados: meusIngressos - 1
+          });
+        }
+        
+        if (jaAssisti) {
+          filmeParaGrupo.seloJaAssistido = true;
+          filmeParaGrupo.notaAutor = minhaNota;
+
+          const qPessoalCheck = query(collection(db, "filmes_pessoais"), where("tmdbId", "==", filmeSelecionado.id), where("sugeridoPor.uid", "==", usuario.uid));
+          const snapPessoalCheck = await getDocs(qPessoalCheck);
+          if (snapPessoalCheck.empty) {
+            const filmePessoal = { ...novoFilmeBase, notaPessoal: minhaNota };
+            await addDoc(collection(db, "filmes_pessoais"), filmePessoal);
+          }
+        }
+        
+        await addDoc(collection(db, "filmes"), filmeParaGrupo);
+        toast.dismiss(t);
+        
+        if (usarIngresso) {
+          toast.success("🎫 FURA-FILA ATIVADO! Seu filme está no Topo!", { style: { background: '#ca8a04', color: '#fff' }});
+        } else {
+          toast.success(jaAssisti ? "Indicado com Selo 🥇 e salvo no seu Diário! 🍿" : "Sucesso! Foi para a fila de Sugestões.");
+        }
+        
+        setTimeout(() => router.push("/sugestoes"), 2000);
+        
+      } else {
+        const filmePessoal = { ...novoFilmeBase, notaPessoal: minhaNota };
+        await addDoc(collection(db, "filmes_pessoais"), filmePessoal);
+        toast.dismiss(t);
+        toast.success("Salvo no seu Diário Pessoal! 🍿");
+        setTimeout(() => router.push(`/perfil/${usuario.uid}`), 1500);
+      }
+
       setFilmeSelecionado(null);
-      
-      setTimeout(() => {
-        router.push("/sugestoes"); 
-      }, 1500);
+      setJaAssisti(false);
+      setMinhaNota(0);
+      setUsarIngresso(false);
 
     } catch (error) {
       toast.dismiss(t);
@@ -135,72 +281,100 @@ export default function NovoFilme() {
     }
   };
 
+  const statusNoGrupo = filmeSelecionado ? acervoIds[filmeSelecionado.id] : null;
+
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-white pb-20 overflow-x-hidden relative font-sans">
-      
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-2xl h-[400px] bg-red-900/20 blur-[120px] pointer-events-none z-0"></div>
 
       {filmeSelecionado && (
         <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 sm:p-6 opacity-100 transition-opacity">
-          <div 
-            className="absolute inset-0 bg-black/90 backdrop-blur-xl cursor-pointer"
-            onClick={() => setFilmeSelecionado(null)}
-          ></div>
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-xl cursor-pointer" onClick={() => setFilmeSelecionado(null)}></div>
           
-          <div className="relative w-full max-w-4xl bg-[#111111] rounded-[2rem] sm:rounded-[3rem] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-white/10 animate-fade-in-up">
+          <div className="relative w-full max-w-4xl bg-[#111111] rounded-[2rem] sm:rounded-[3rem] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-white/10 animate-fade-in-up flex flex-col max-h-[90vh]">
             
-            <div className="relative w-full h-48 sm:h-72 bg-black">
+            <div className="relative w-full h-40 sm:h-64 bg-black shrink-0">
               {filmeSelecionado.backdrop_path ? (
-                <img 
-                  src={`https://image.tmdb.org/t/p/w1280${filmeSelecionado.backdrop_path}`} 
-                  alt="Fundo" 
-                  className="w-full h-full object-cover opacity-40 mask-image-b"
-                />
+                <img src={`https://image.tmdb.org/t/p/w1280${filmeSelecionado.backdrop_path}`} alt="Fundo" className={`w-full h-full object-cover mask-image-b ${statusNoGrupo ? 'opacity-20 grayscale' : 'opacity-40'}`} />
               ) : (
                 <div className="w-full h-full bg-gradient-to-b from-gray-900 to-[#111111]"></div>
               )}
               <div className="absolute inset-0 bg-gradient-to-t from-[#111111] via-transparent to-transparent"></div>
-              
-              <button 
-                onClick={() => setFilmeSelecionado(null)}
-                className="absolute top-4 right-4 sm:top-6 sm:right-6 w-10 h-10 bg-black/50 hover:bg-red-600 rounded-full flex items-center justify-center backdrop-blur-md border border-white/10 transition-colors z-50 text-white font-black"
-              >
-                ✕
-              </button>
+              <button onClick={() => setFilmeSelecionado(null)} className="absolute top-4 right-4 sm:top-6 sm:right-6 w-10 h-10 bg-black/50 hover:bg-red-600 rounded-full flex items-center justify-center backdrop-blur-md border border-white/10 transition-colors z-50 text-white font-black">✕</button>
             </div>
 
-            <div className="relative px-6 sm:px-12 pb-8 sm:pb-12 -mt-16 sm:-mt-24 flex flex-col sm:flex-row gap-6 sm:gap-10 items-center sm:items-start text-center sm:text-left">
-              <img 
-                src={`https://image.tmdb.org/t/p/w500${filmeSelecionado.poster_path}`} 
-                alt={filmeSelecionado.title}
-                className="w-32 sm:w-48 rounded-2xl sm:rounded-3xl shadow-2xl border-2 border-white/10 transform sm:hover:scale-105 transition-transform"
-              />
+            <div className="relative px-6 sm:px-12 pb-8 sm:pb-12 -mt-16 sm:-mt-20 flex flex-col sm:flex-row gap-6 sm:gap-10 items-center sm:items-start text-center sm:text-left overflow-y-auto custom-scrollbar">
+              <img src={`https://image.tmdb.org/t/p/w500${filmeSelecionado.poster_path}`} alt={filmeSelecionado.title} className={`w-32 sm:w-48 rounded-2xl sm:rounded-3xl shadow-2xl border-2 border-white/10 transform sm:hover:scale-105 transition-all shrink-0 ${statusNoGrupo ? 'grayscale' : ''}`} />
 
-              <div className="flex-1 mt-2 sm:mt-8">
-                <h2 className="text-3xl sm:text-5xl font-black uppercase italic tracking-tighter leading-tight mb-2">
-                  {filmeSelecionado.title}
-                </h2>
+              <div className="flex-1 mt-2 sm:mt-6 w-full">
+                <h2 className="text-3xl sm:text-5xl font-black uppercase italic tracking-tighter leading-tight mb-2">{filmeSelecionado.title}</h2>
                 
-                <div className="flex flex-wrap justify-center sm:justify-start items-center gap-3 mb-6">
-                  <span className="bg-red-600 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-md">
-                    {filmeSelecionado.release_date?.substring(0,4) || "????"}
-                  </span>
-                  <span className="bg-white/5 border border-white/10 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest text-yellow-500 flex items-center gap-1">
-                    ⭐ {filmeSelecionado.vote_average ? filmeSelecionado.vote_average.toFixed(1) : "N/A"} <span className="text-gray-500">/ 10</span>
-                  </span>
+                <div className="flex flex-wrap justify-center sm:justify-start items-center gap-3 mb-4">
+                  <span className="bg-red-600 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-md">{filmeSelecionado.release_date?.substring(0,4) || "????"}</span>
+                  <span className="bg-white/5 border border-white/10 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest text-yellow-500 flex items-center gap-1">⭐ {filmeSelecionado.vote_average ? filmeSelecionado.vote_average.toFixed(1) : "N/A"}</span>
                 </div>
 
-                <p className="text-gray-400 text-sm sm:text-base leading-relaxed italic mb-8 line-clamp-4 sm:line-clamp-none">
-                  {filmeSelecionado.overview || "Este filme ainda não possui sinopse em português."}
+                <p className="text-gray-400 text-xs sm:text-sm leading-relaxed italic mb-6 line-clamp-4 sm:line-clamp-none text-center sm:text-left">
+                  {filmeSelecionado.overview || "Este filme ainda não possui sinopse oficial em português."}
                 </p>
 
-                <button 
-                  onClick={confirmarESalvarFilme}
-                  disabled={salvando}
-                  className="w-full sm:w-auto bg-red-600 hover:bg-red-700 disabled:bg-red-900 text-white px-8 py-4 rounded-xl sm:rounded-full text-xs sm:text-sm font-black uppercase tracking-[0.2em] transition-all shadow-[0_0_30px_rgba(220,38,38,0.4)] hover:shadow-[0_0_50px_rgba(220,38,38,0.6)] flex items-center justify-center gap-3"
-                >
-                  {salvando ? "Processando..." : "🔥 Confirmar Indicação"}
-                </button>
+                {statusNoGrupo && (
+                  <div className="bg-orange-900/20 border border-orange-500/30 p-3 rounded-xl mb-4 flex items-center gap-3 w-fit mx-auto sm:mx-0">
+                    <span className="text-xl">⚠️</span>
+                    <p className="text-[10px] sm:text-xs text-orange-200 uppercase font-black tracking-widest leading-relaxed text-left">
+                      A galera já {statusNoGrupo === 'assistido' ? 'assistiu a' : 'colocou na fila'} este filme.<br/>Você só pode guardá-lo no seu Diário Pessoal.
+                    </p>
+                  </div>
+                )}
+
+                {/* 🪄 CAIXA DO INGRESSO DOURADO */}
+                {meusIngressos > 0 && !statusNoGrupo && (
+                  <div className="mb-4 bg-yellow-900/20 border border-yellow-500/50 p-4 rounded-xl flex items-center gap-3 w-fit mx-auto sm:mx-0 shadow-[0_0_20px_rgba(234,179,8,0.1)]">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" checked={usarIngresso} onChange={(e) => setUsarIngresso(e.target.checked)} className="w-5 h-5 accent-yellow-500 rounded cursor-pointer" />
+                      <span className="text-[10px] sm:text-xs text-yellow-500 uppercase font-black tracking-widest leading-relaxed text-left">
+                        USAR 1 INGRESSO DOURADO 🎫 (Você tem {meusIngressos})<br/>
+                        <span className="text-[8px] text-yellow-600">Este filme vai ignorar os votos e ir direto para o Topo da Fila!</span>
+                      </span>
+                    </label>
+                  </div>
+                )}
+
+                <div className={`mt-2 bg-black/40 border border-white/5 p-4 rounded-2xl mb-6 ${statusNoGrupo ? 'border-blue-500/30' : ''}`}>
+                  <label className="flex items-center gap-3 cursor-pointer mb-2 w-fit mx-auto sm:mx-0">
+                    <input type="checkbox" checked={jaAssisti} onChange={(e) => { setJaAssisti(e.target.checked); setMinhaNota(0); }} className="w-5 h-5 accent-yellow-500 rounded cursor-pointer" />
+                    <span className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-yellow-500">
+                      {statusNoGrupo ? "Para guardar no Diário, avalie:" : "Eu já assisti a este filme sozinho"}
+                    </span>
+                  </label>
+
+                  {jaAssisti && (
+                    <div className="animate-fade-in-up mt-4">
+                      <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest mb-2 text-center sm:text-left">Deixe a sua nota para continuar:</p>
+                      <div className="flex gap-2 flex-wrap justify-center sm:justify-start">
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                          <button key={n} onClick={() => setMinhaNota(n)} className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl font-black text-xs sm:text-sm transition-all ${minhaNota === n ? "bg-yellow-500 text-black shadow-[0_0_15px_rgba(234,179,8,0.5)] scale-110" : "bg-white/5 text-gray-500 hover:bg-white/10 hover:text-white"}`}>
+                            {n}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 mt-4">
+                  {!statusNoGrupo && (
+                    <button onClick={() => confirmarESalvarFilme("grupo")} disabled={salvando || (jaAssisti && minhaNota === 0)} className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-800 text-white py-3 sm:py-4 rounded-xl text-[10px] sm:text-[11px] font-black uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(220,38,38,0.3)] flex items-center justify-center gap-2 shrink-0">
+                      🔥 Indicar p/ Galera {jaAssisti && "com Selo"} {usarIngresso && "🎫"}
+                    </button>
+                  )}
+
+                  {jaAssisti && (
+                    <button onClick={() => confirmarESalvarFilme("pessoal")} disabled={salvando || minhaNota === 0} className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-800 text-white py-3 sm:py-4 rounded-xl text-[10px] sm:text-[11px] font-black uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(37,99,235,0.3)] flex items-center justify-center gap-2 shrink-0">
+                      🔒 Guardar no Meu Diário
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -212,19 +386,35 @@ export default function NovoFilme() {
 
         <div className="max-w-3xl mx-auto mt-16 sm:mt-24 text-center">
           <h1 className="text-4xl sm:text-6xl font-black tracking-tighter mb-4 bg-gradient-to-r from-white to-gray-500 bg-clip-text text-transparent">
-            INDICAR FILME
+            ACERVO MUNDIAL
           </h1>
-          <p className="text-gray-400 mb-10 text-sm sm:text-base font-medium">
-            Pesquise no acervo mundial e jogue sua sugestão na nossa fila.
+          <p className="text-gray-400 mb-8 text-sm sm:text-base font-medium">
+            O que vamos assistir? Busque, filtre e sugira.
           </p>
+
+          <div className="flex justify-center gap-2 sm:gap-4 mb-6">
+            <button onClick={() => { setModoBusca("titulo"); setBusca(""); }} className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${modoBusca === "titulo" ? "bg-red-600 text-white shadow-lg shadow-red-600/30" : "bg-[#111111] text-gray-500 border border-white/10 hover:text-white"}`}>
+              🎬 Título
+            </button>
+            <button onClick={() => { setModoBusca("ator"); setBusca(""); }} className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${modoBusca === "ator" ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30" : "bg-[#111111] text-gray-500 border border-white/10 hover:text-white"}`}>
+              👤 Ator
+            </button>
+            <button onClick={() => { setModoBusca("ano"); setBusca(""); }} className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${modoBusca === "ano" ? "bg-yellow-600 text-black shadow-lg shadow-yellow-600/30" : "bg-[#111111] text-gray-500 border border-white/10 hover:text-white"}`}>
+              📅 Ano
+            </button>
+          </div>
           
           <div className="relative flex items-center mb-16 shadow-2xl">
             <input 
               type="text" 
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              className="w-full bg-[#141414] border border-white/10 rounded-2xl py-5 pl-6 pr-32 text-white focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all text-lg font-medium shadow-inner placeholder:text-gray-600"
-              placeholder="Digite o nome do filme (ex: O Telefone Preto)..."
+              value={busca} 
+              onChange={(e) => setBusca(e.target.value)} 
+              className="w-full bg-[#141414] border border-white/10 rounded-2xl py-5 pl-6 pr-32 text-white focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all text-lg font-medium shadow-inner placeholder:text-gray-600" 
+              placeholder={
+                modoBusca === "titulo" ? "Ex: O Telefone Preto..." :
+                modoBusca === "ator" ? "Ex: Leonardo DiCaprio..." :
+                "Ex: 2023..."
+              } 
             />
             <div className="absolute right-2 top-2 bottom-2 bg-white/5 border border-white/10 text-white/50 font-black px-6 rounded-xl text-xs uppercase tracking-widest flex items-center justify-center min-w-[120px]">
               {buscando ? "Buscando..." : "🔎"}
@@ -235,41 +425,71 @@ export default function NovoFilme() {
         {resultados.length > 0 && (
           <div className="max-w-6xl mx-auto border-t border-white/5 pt-12 animate-fade-in">
             <h3 className="text-xl font-bold mb-8 flex items-center gap-3">
-              <span className="w-2 h-8 bg-red-600 rounded-full"></span>
-              Resultados Encontrados
+              <span className="w-2 h-8 bg-red-600 rounded-full"></span> Resultados Encontrados
             </h3>
-
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-              {resultados.map((filme) => (
-                <div 
-                  key={filme.id} 
-                  onClick={() => setFilmeSelecionado(filme)}
-                  className="group relative bg-[#141414] rounded-2xl overflow-hidden shadow-xl border border-white/5 cursor-pointer hover:border-red-500/50 transition-all aspect-[2/3]"
-                >
-                  <img 
-                    src={`https://image.tmdb.org/t/p/w500${filme.poster_path}`} 
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" 
-                    alt={filme.title}
-                  />
-                  
-                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
-                    <h4 className="font-black text-white text-sm leading-tight mb-1">
-                      {filme.title}
-                    </h4>
-                    <span className="text-red-500 font-bold text-[10px] uppercase tracking-widest mb-4">
-                      {filme.release_date ? filme.release_date.substring(0, 4) : "Data Indisponível"}
-                    </span>
+              {resultados.map((filme) => {
+                const status = acervoIds[filme.id]; 
+                return (
+                  <div key={filme.id} onClick={() => selecionarFilme(filme)} className={`group relative bg-[#141414] rounded-2xl overflow-hidden shadow-xl border border-white/5 cursor-pointer transition-all aspect-[2/3] ${status ? 'opacity-40 grayscale hover:grayscale-0 hover:opacity-100 hover:border-blue-500/50' : 'hover:border-red-500/50'}`}>
                     
-                    <button className="w-full bg-white/10 backdrop-blur-md border border-white/20 text-white py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-600 hover:border-transparent transition-all shadow-lg">
-                      Ver Mais
-                    </button>
+                    {status && (
+                      <div className="absolute top-2 right-2 bg-black/90 backdrop-blur-md text-white px-2 py-1 rounded-md text-[8px] font-black uppercase tracking-widest border border-white/10 z-20">
+                        {status === "assistido" ? "👀 Já Assistido" : "⏳ Na Fila"}
+                      </div>
+                    )}
+
+                    <img src={`https://image.tmdb.org/t/p/w500${filme.poster_path}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt={filme.title} />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
+                      <h4 className="font-black text-white text-sm leading-tight mb-1">{filme.title}</h4>
+                      <span className="text-red-500 font-bold text-[10px] uppercase tracking-widest mb-4">{filme.release_date ? filme.release_date.substring(0, 4) : "Data Indisponível"}</span>
+                      <button className={`w-full backdrop-blur-md border border-white/20 text-white py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg ${status ? 'bg-blue-600/50 hover:bg-blue-600' : 'bg-white/10 hover:bg-red-600 hover:border-transparent'}`}>
+                        {status ? "Ver no Diário" : "Sugerir"}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )}
-        
+
+        {resultados.length === 0 && recomendados.length > 0 && !buscando && busca.trim().length === 0 && (
+          <div className="max-w-6xl mx-auto border-t border-white/5 pt-12 animate-fade-in mb-20">
+            <div className="mb-8">
+              <h3 className="text-xl font-bold flex items-center gap-3 mb-1">
+                <span className="w-2 h-8 bg-blue-600 rounded-full"></span> 💡 Recomendações Inteligentes
+              </h3>
+              <p className="text-[10px] text-gray-500 uppercase tracking-widest font-black">{motivoRecomendacao}</p>
+            </div>
+            
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+              {recomendados.map((filme) => {
+                const status = acervoIds[filme.id]; 
+                return (
+                  <div key={filme.id} onClick={() => selecionarFilme(filme)} className={`group relative bg-[#141414] rounded-2xl overflow-hidden shadow-xl border border-white/5 cursor-pointer transition-all aspect-[2/3] ${status ? 'opacity-40 grayscale hover:grayscale-0 hover:opacity-100 hover:border-blue-500/50' : 'hover:border-blue-500/50'}`}>
+                    
+                    {status && (
+                      <div className="absolute top-2 right-2 bg-black/90 backdrop-blur-md text-white px-2 py-1 rounded-md text-[8px] font-black uppercase tracking-widest border border-white/10 z-20">
+                        {status === "assistido" ? "👀 Já Assistido" : "⏳ Na Fila"}
+                      </div>
+                    )}
+
+                    <img src={`https://image.tmdb.org/t/p/w500${filme.poster_path}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt={filme.title} />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
+                      <h4 className="font-black text-white text-sm leading-tight mb-1">{filme.title}</h4>
+                      <span className="text-blue-500 font-bold text-[10px] uppercase tracking-widest mb-4">Recomendado</span>
+                      <button className={`w-full backdrop-blur-md border border-white/20 text-white py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg ${status ? 'bg-blue-600/50 hover:bg-blue-600' : 'bg-white/10 hover:bg-blue-600 hover:border-transparent'}`}>
+                        {status ? "Ver no Diário" : "Ver Mais"}
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
       </div>
     </main>
   );
