@@ -35,11 +35,25 @@ export default function HeaderPerfil({
     }
   };
 
+  // 🪄 A FUNÇÃO MÁGICA: Juntar-se ao Dono do Perfil
+  const entrarNaSessaoJam = () => {
+    const jam = dadosGamer.sessaoJam;
+    if (!jam || !jam.isPlaying) return;
+    
+    // Calcula quantos segundos passaram desde que o dono deu Play
+    const segundosPassados = (Date.now() - jam.startTimestamp) / 1000;
+    
+    // Dispara o Player Global com a música e o tempo exato
+    window.dispatchEvent(new CustomEvent("playGlobalMusic", { 
+      detail: { track: jam.track, offset: segundosPassados } 
+    }));
+    
+    toast.success(`Sincronizado com ${usuarioPerfil.nome}! 🎧`, { icon: "🔥" });
+  };
+
   return (
-    // 🪄 SEM OVERFLOW-HIDDEN AQUI NA CAIXA PRINCIPAL!
     <div className="relative w-full pt-32 sm:pt-40 pb-10 bg-[#111111] border-b border-white/10 min-h-[350px] z-[60]">
       
-      {/* 🪄 O OVERFLOW-HIDDEN VAI SÓ PARA A CAMADA DO VÍDEO NO FUNDO */}
       <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
         {dadosGamer.trailerCapa ? (
           <iframe className="absolute w-[300vw] h-[300vh] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-30 pointer-events-none z-0" src={`https://www.youtube.com/embed/${dadosGamer.trailerCapa}?autoplay=1&mute=1&controls=0&loop=1&playlist=${dadosGamer.trailerCapa}&modestbranding=1`} allow="autoplay; encrypted-media"></iframe>
@@ -73,17 +87,26 @@ export default function HeaderPerfil({
               <div className={`absolute bottom-2 right-2 w-5 h-5 rounded-full border-4 border-[#070707] ${statusUsuario.cor}`}></div>
             </div>
             <span className="bg-black/60 backdrop-blur-md border border-white/5 px-3 py-1 rounded-full text-[8px] font-black uppercase text-gray-400 mt-3">{statusUsuario.texto}</span>
-            {rankingInfo.posicao === 1 && rankingInfo.pontos > 0 && <div className="absolute -top-3 -right-3 text-4xl animate-bounce">👑</div>}
           </div>
           
           <div className="text-center sm:text-left flex-1 w-full">
             <h1 className="text-3xl sm:text-6xl font-black uppercase italic tracking-tighter mb-1 drop-shadow-lg">{usuarioPerfil.nome}</h1>
             
-            <div className="flex flex-col sm:flex-row sm:items-center mb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center mb-3 gap-2 sm:gap-3">
               <p className="text-gray-400 text-[10px] sm:text-sm font-black uppercase tracking-widest">
                 <span className="text-red-500">Membro da Galera</span> • ID: {usuarioPerfil.uid.substring(0,6)}
               </p>
               <HumorDoDia humorAtual={dadosGamer.humorDoDia} isOwner={isOwner} usuarioLogado={usuarioLogado} />
+              
+              {/* 🪄 BOTÃO MÁGICO: APARECE SE O DONO ESTIVER A OUVIR ALGO */}
+              {!isOwner && dadosGamer.sessaoJam?.isPlaying && (
+                <button 
+                  onClick={entrarNaSessaoJam} 
+                  className="bg-pink-600 hover:bg-pink-500 text-white px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest shadow-[0_0_15px_rgba(236,72,153,0.8)] flex items-center justify-center gap-2 transition-all animate-pulse ml-0 sm:ml-2"
+                >
+                  <span className="text-sm">🎧</span> Ouvir Junto
+                </button>
+              )}
             </div>
             
             <div className="flex flex-wrap justify-center sm:justify-start gap-2 mt-2">
@@ -97,21 +120,6 @@ export default function HeaderPerfil({
               filmesComNotas={filmesComNotas} indicacoes={indicacoes} comentarios={comentarios} 
               diarioPessoal={diarioPessoal} upvoted={upvoted} itensCultura={itensCultura} dadosGamer={dadosGamer}
             />
-          </div>
-          
-          <div className="flex flex-col items-center sm:items-end gap-3 mt-4 sm:mt-0">
-            <div className="flex items-center gap-2">
-              {matchScore !== null && (
-                <div className="bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/30 px-4 py-2.5 rounded-xl flex items-center gap-2">
-                  <span className="text-lg">🔥</span><div className="flex flex-col"><span className="text-[8px] font-black uppercase text-blue-400 mb-0.5">Match Cultural</span><span className="text-xs font-black text-white">{matchScore}% Afinidade</span></div>
-                </div>
-              )}
-              {!isOwner && (
-                <button onClick={cutucarAmigo} className="bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(220,38,38,0.4)] flex items-center gap-2">
-                  <span className="text-sm">👉</span> Dar Toque
-                </button>
-              )}
-            </div>
           </div>
         </div>
       </div>

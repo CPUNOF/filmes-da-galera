@@ -11,6 +11,8 @@ import GestorCultura from "@/components/GestorCultura";
 import HeaderPerfil from "@/components/HeaderPerfil";
 import PainelInterativo from "@/components/PainelInterativo";
 import AbaCultura from "@/components/AbaCultura"; 
+import AbaMusica from "@/components/AbaMusica";
+import PlayerGlobal from "@/components/PlayerGlobal";
 import EstatisticasWrapped from "@/components/EstatisticasWrapped";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
@@ -102,7 +104,8 @@ export default function PerfilUsuario({ params }) {
           progresso: d.votosParaIngresso || 0, 
           ultimoAcesso: d.ultimoAcesso?.toDate() || null, 
           trailerCapa: d.trailerCapa || null,
-          humorDoDia: d.humorDoDia || null 
+          humorDoDia: d.humorDoDia || null,
+          sessaoJam: d.sessaoJam || null
         });
         setTemaPerfil(d.temaPerfil || "padrao"); 
       }
@@ -503,11 +506,17 @@ export default function PerfilUsuario({ params }) {
           {abaAtiva === "animes" && <AbaCultura itens={animesCultura} categoria="Mundo Otaku" tipo="Anime" cor="orange" isOwner={isOwner} icon="🎌" />}
           {abaAtiva === "livros" && <AbaCultura itens={livrosCultura} categoria="Cabeceira" tipo="Livro" cor="emerald" isOwner={isOwner} icon="📚" />}
           {abaAtiva === "mangas" && <AbaCultura itens={mangasCultura} categoria="Mangás & HQs" tipo="Mangá" cor="red" isOwner={isOwner} icon="🏮" />}
-          {abaAtiva === "musicas" && <AbaCultura itens={musicasCultura} categoria="Playlist Global" tipo="Música" cor="pink" isOwner={isOwner} icon="🎵" />}
+          {abaAtiva === "musicas" && <AbaMusica itens={musicasCultura} isOwner={isOwner} icon="🎵" />}
 
           {/* MOTOR DE CULTURA (POP-UP) */}
           <GestorCultura usuarioLogado={usuarioLogado} recarregarDados={carregarPerfilDatabase} />
         </div>
+          {/* MOTOR DE CULTURA (POP-UP) */}
+     <GestorCultura usuarioLogado={usuarioLogado} recarregarDados={carregarPerfilDatabase} />
+
+     {/* 🪄 O PLAYER GLOBAL - SEMPRE POR CIMA DE TUDO */}
+     <PlayerGlobal isOwner={isOwner} usuarioLogado={usuarioLogado} />
+
       </div>
     </main>
   );
