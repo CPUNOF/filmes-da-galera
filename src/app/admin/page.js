@@ -21,8 +21,12 @@ export default function PainelAdmin() {
   
   const [filmesAdmin, setFilmesAdmin] = useState([]); 
   const [comentariosRecentes, setComentariosRecentes] = useState([]);
-  const [listaUsuarios, setListaUsuarios] = useState([]); // 🪄 Radar de Usuários Ativado
+  const [listaUsuarios, setListaUsuarios] = useState([]); 
   
+  // 🪄 NOVOS ESTADOS DE BUSCA
+  const [filtroFilmes, setFiltroFilmes] = useState("");
+  const [filtroUsuarios, setFiltroUsuarios] = useState("");
+
   const [stats, setStats] = useState({ vistos: 0, fila: 0 });
   const [carregando, setCarregando] = useState(true);
   const router = useRouter();
@@ -44,11 +48,9 @@ export default function PainelAdmin() {
       snapMembros.forEach((doc) => { membros.push(doc.id); });
       setListaMembros(membros);
 
-      // 🪄 BUSCA TODOS QUE JÁ FIZERAM LOGIN
       const snapUsuarios = await getDocs(collection(db, "usuarios"));
       const users = [];
       snapUsuarios.forEach((doc) => { users.push(doc.data()); });
-      // Ordena pelos que logaram mais recentemente
       users.sort((a, b) => new Date(b.ultimoLogin || 0) - new Date(a.ultimoLogin || 0));
       setListaUsuarios(users);
 
@@ -63,7 +65,7 @@ export default function PainelAdmin() {
         todosFilmes.push({ id: doc.id, ...data });
       });
       setStats({ vistos: contVistos, fila: contFila });
-      setFilmesAdmin(todosFilmes.reverse()); 
+      setFilmesAdmin(todosFilmes.sort((a, b) => new Date(b.dataCriacao || 0) - new Date(a.dataCriacao || 0))); 
 
       const snapComents = await getDocs(collection(db, "comentarios"));
       const coments = [];
@@ -79,17 +81,16 @@ export default function PainelAdmin() {
 
   useEffect(() => { if (isAdmin) buscarDados(); }, [isAdmin]);
 
-  // 🪄 NOVOS BOTÕES DE UM CLIQUE PARA AUTORIZAR A GALERA
   const autorizarUsuario = async (email) => {
     try {
       await setDoc(doc(db, "membros", email.toLowerCase().trim()), { ativo: true });
       buscarDados();
-      toast.success("Acesso liberado para indicar filmes!");
+      toast.success("Acesso liberado!");
     } catch (error) { toast.error("Falha ao autorizar."); }
   };
 
   const promoverAdminUsuario = async (email) => {
-    if (confirm(`Dar poderes totais de Admin para ${email}?`)) {
+    if (confirm(`Dar poderes de Admin para ${email}?`)) {
       try {
         await setDoc(doc(db, "admins", email.toLowerCase().trim()), { ativo: true });
         buscarDados();
@@ -105,11 +106,11 @@ export default function PainelAdmin() {
   };
 
   const removerMembro = async (email) => {
-    if (confirm(`Remover permissão de indicação para ${email}?`)) {
+    if (confirm(`Remover permissão de ${email}?`)) {
       try {
         await deleteDoc(doc(db, "membros", email));
         buscarDados();
-        toast.success("Membro banido da lista.");
+        toast.success("Membro removido.");
       } catch (error) { toast.error("Erro ao remover membro."); }
     }
   };
@@ -137,7 +138,7 @@ export default function PainelAdmin() {
       await updateDoc(doc(db, "filmes", modalAutor.id), {
         sugeridoPor: { nome: novoAutorNome, foto: novoAutorFoto }
       });
-      toast.success("Autor do filme atualizado!");
+      toast.success("Autor atualizado!");
       setModalAutor(null);
       buscarDados();
     } catch (error) { toast.error("Erro ao atualizar o autor."); }
@@ -156,17 +157,17 @@ export default function PainelAdmin() {
   };
 
   const apagarResenha = async (id) => {
-    if(confirm("Apagar resenha do mapa permanentemente?")) {
+    if(confirm("Apagar resenha do mapa?")) {
       try {
         await deleteDoc(doc(db, "comentarios", id));
-        toast.success("Resenha incinerada!");
+        toast.success("Resenha apagada!");
         buscarDados();
       } catch(e) { toast.error("Erro na operação."); }
     }
   };
 
   const deletarFilme = async (id, titulo) => {
-    if (confirm(`Apagar permanentemente "${titulo}"?`)) {
+    if (confirm(`Apagar "${titulo}"?`)) {
       try {
         await deleteDoc(doc(db, "filmes", id));
         buscarDados();
@@ -175,7 +176,23 @@ export default function PainelAdmin() {
     }
   };
 
-  if (carregandoAdmin) return <main className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center uppercase font-black">Acessando Cofre...</main>;
+  // 🪄 NOVO: FUNÇÃO INICIAR SESSÃO AO VIVO
+  const iniciarSessao = async (id, titulo) => {
+    if(confirm(`Iniciar a sessão de "${titulo}" agora? Isso enviará um Alerta Ao Vivo no Feed.`)) {
+      try {
+        await updateDoc(doc(db, "filmes", id), {
+          status: "assistido",
+          dataAssistido: new Date().toISOString()
+        });
+        toast.success("🔴 Sessão Iniciada!");
+        buscarDados();
+      } catch(e) {
+        toast.error("Erro ao iniciar sessão.");
+      }
+    }
+  };
+
+  if (carregandoAdmin) return <main className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center uppercase font-black">Acessando...</main>;
 
   if (!isAdmin) {
     return (
@@ -187,6 +204,10 @@ export default function PainelAdmin() {
       </main>
     );
   }
+
+  // Lógica de Filtro
+  const filmesFiltrados = filmesAdmin.filter(f => f.titulo.toLowerCase().includes(filtroFilmes.toLowerCase()));
+  const usuariosFiltrados = listaUsuarios.filter(u => u.nome.toLowerCase().includes(filtroUsuarios.toLowerCase()) || u.email.toLowerCase().includes(filtroUsuarios.toLowerCase()));
 
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-white pb-20 font-sans">
@@ -204,20 +225,19 @@ export default function PainelAdmin() {
                 <input 
                   type="text" value={novoAutorNome} onChange={(e) => setNovoAutorNome(e.target.value)}
                   className="w-full bg-black/50 border border-white/10 rounded-xl p-4 text-sm outline-none focus:border-blue-500 transition-all text-white"
-                  placeholder="Ex: João Silva" required
+                  required
                 />
               </div>
               <div>
-                <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 block mb-2">URL da Foto do Perfil (Opcional)</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 block mb-2">URL da Foto</label>
                 <input 
                   type="text" value={novoAutorFoto} onChange={(e) => setNovoAutorFoto(e.target.value)}
                   className="w-full bg-black/50 border border-white/10 rounded-xl p-4 text-sm outline-none focus:border-blue-500 transition-all text-white"
-                  placeholder="https://..."
                 />
               </div>
               <div className="flex gap-3 pt-4">
                 <button type="button" onClick={() => setModalAutor(null)} className="flex-1 bg-white/5 font-black py-4 rounded-xl text-[10px] uppercase tracking-widest hover:bg-white/10 transition-all">Cancelar</button>
-                <button type="submit" className="flex-1 bg-blue-600 font-black py-4 rounded-xl text-[10px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20">Salvar Dados</button>
+                <button type="submit" className="flex-1 bg-blue-600 font-black py-4 rounded-xl text-[10px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20">Salvar</button>
               </div>
             </form>
           </div>
@@ -228,12 +248,12 @@ export default function PainelAdmin() {
         <header className="mb-12 flex flex-col sm:flex-row justify-between items-start sm:items-end border-b border-white/5 pb-8 gap-6">
           <div>
             <h2 className="text-4xl font-black tracking-tighter flex items-center gap-4 uppercase italic">
-              <span className="w-3 h-10 bg-red-600 rounded-full"></span> Central de Comando
+              <span className="w-3 h-10 bg-red-600 rounded-full"></span> Admin
             </h2>
-            <p className="text-gray-500 text-[10px] font-black uppercase mt-2 tracking-[0.2em]">FDG Moderação Global</p>
+            <p className="text-gray-500 text-[10px] font-black uppercase mt-2 tracking-[0.2em]">Painel de Controle</p>
           </div>
           <button onClick={buscarDados} className="bg-white/5 hover:bg-white/10 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/5 transition-all shadow-md">
-            🔄 Atualizar Banco
+            🔄 Atualizar DB
           </button>
         </header>
 
@@ -259,115 +279,110 @@ export default function PainelAdmin() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
           <div className="space-y-10">
             <section className="bg-[#111111] p-8 rounded-[2rem] border border-white/5 shadow-2xl">
-              <h3 className="text-[11px] font-black text-green-500 tracking-[0.2em] mb-6 flex items-center gap-2 uppercase">
-                <span className="w-6 h-[2px] bg-green-600"></span> Adição Manual de Membro
+              <h3 className="text-[11px] font-black text-green-500 tracking-[0.2em] mb-6 uppercase">
+                Adicionar Membro
               </h3>
               <form onSubmit={adicionarMembro} className="space-y-4">
                 <input 
-                  type="email" required value={emailNovoMembro}
-                  onChange={(e) => setEmailNovoMembro(e.target.value)}
+                  type="email" required value={emailNovoMembro} onChange={(e) => setEmailNovoMembro(e.target.value)}
                   placeholder="amigo@email.com"
-                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-sm outline-none focus:border-green-600 transition-all shadow-inner text-white"
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-sm outline-none focus:border-green-600 text-white"
                 />
-                <button type="submit" className="w-full bg-green-600 hover:bg-green-700 transition-all font-black py-4 rounded-2xl text-[10px] text-white uppercase tracking-[0.2em] shadow-lg shadow-green-600/20">Autorizar Indicação</button>
+                <button type="submit" className="w-full bg-green-600 hover:bg-green-700 font-black py-4 rounded-2xl text-[10px] text-white uppercase tracking-[0.2em]">Autorizar</button>
               </form>
             </section>
 
             <section className="bg-[#111111] p-8 rounded-[2rem] border border-white/5 shadow-2xl">
-              <h3 className="text-[11px] font-black text-white tracking-[0.2em] mb-6 flex items-center gap-2 uppercase">
-                <span className="w-6 h-[2px] bg-red-600"></span> Promover Admin Manualmente
+              <h3 className="text-[11px] font-black text-white tracking-[0.2em] mb-6 uppercase">
+                Promover Admin
               </h3>
               <form onSubmit={adicionarAdmin} className="space-y-4">
                 <input 
-                  type="email" required value={emailNovoAdmin}
-                  onChange={(e) => setEmailNovoAdmin(e.target.value)}
+                  type="email" required value={emailNovoAdmin} onChange={(e) => setEmailNovoAdmin(e.target.value)}
                   placeholder="admin@email.com"
-                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-sm outline-none focus:border-red-600 transition-all shadow-inner text-white"
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-sm outline-none focus:border-red-600 text-white"
                 />
-                <button type="submit" className="w-full bg-red-600 hover:bg-red-700 transition-all font-black py-4 rounded-2xl text-[10px] text-white uppercase tracking-[0.2em] shadow-lg shadow-red-600/20">Conceder Poderes</button>
+                <button type="submit" className="w-full bg-red-600 hover:bg-red-700 font-black py-4 rounded-2xl text-[10px] text-white uppercase tracking-[0.2em]">Conceder Poderes</button>
               </form>
             </section>
           </div>
 
           <div className="lg:col-span-2 space-y-10">
             <section className="bg-[#111111] p-8 rounded-[2rem] border border-white/5 shadow-2xl">
-              <h3 className="text-[11px] font-black text-orange-500 tracking-[0.2em] mb-8 flex items-center gap-2 uppercase">
-                <span className="w-6 h-[2px] bg-orange-600"></span> Gestão de Acervo (Filmes & Sugestões)
-              </h3>
-              <div className="space-y-4 max-h-[480px] overflow-y-auto pr-2 custom-scrollbar">
-                {filmesAdmin.length > 0 ? filmesAdmin.map(filme => {
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                <h3 className="text-[11px] font-black text-orange-500 tracking-[0.2em] uppercase">
+                  Acervo de Filmes
+                </h3>
+                {/* 🪄 BARRA DE PESQUISA */}
+                <input 
+                  type="text" placeholder="Buscar filme..." value={filtroFilmes} onChange={(e) => setFiltroFilmes(e.target.value)}
+                  className="bg-black border border-white/10 rounded-lg px-4 py-2 text-xs outline-none focus:border-orange-500 w-full sm:w-48"
+                />
+              </div>
+              
+              <div className="space-y-3 max-h-[480px] overflow-y-auto pr-2 custom-scrollbar">
+                {filmesFiltrados.length > 0 ? filmesFiltrados.map(filme => {
                   const autorRaw = filme.usuarioNome || filme.sugeridoPor || filme.autor;
                   const nomeAutor = typeof autorRaw === 'object' && autorRaw !== null ? (autorRaw.nome || autorRaw.displayName || "Desconhecido") : (autorRaw || "Anônimo");
 
                   return (
                     <div key={filme.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-black/40 rounded-2xl border border-white/5 hover:border-white/10 transition-all gap-4">
                       <div className="flex items-center gap-4">
-                        <img src={filme.capa} className="w-12 h-16 object-cover rounded-xl shadow-lg border border-white/10" alt="" />
+                        <img src={filme.capa} className="w-10 h-14 object-cover rounded-md shadow-lg border border-white/10" alt="" />
                         <div>
                           <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-bold text-sm text-white uppercase italic tracking-tighter">{filme.titulo}</h4>
+                            <h4 className="font-bold text-sm text-white uppercase tracking-tighter">{filme.titulo}</h4>
                             <span className={`px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-widest border ${filme.status === 'assistido' ? 'bg-green-900/30 text-green-500 border-green-800' : 'bg-orange-900/30 text-orange-500 border-orange-800'}`}>
                               {filme.status}
                             </span>
                           </div>
                           <p className="text-[9px] text-gray-500 uppercase font-black tracking-widest flex items-center gap-1">
-                            <span className="opacity-50">👤</span> {nomeAutor}
+                            {nomeAutor}
                           </p>
                         </div>
                       </div>
                       
                       <div className="flex gap-2 w-full sm:w-auto">
-                        <button onClick={() => abrirModalEdicao(filme)} className="flex-1 sm:flex-none p-3 bg-blue-900/20 text-blue-500 border border-blue-900/30 rounded-xl hover:bg-blue-600 hover:text-white transition-all text-xs shadow-inner" title="Editar Autor">
-                          ✏️
-                        </button>
-                        <button onClick={() => deletarFilme(filme.id, filme.titulo)} className="flex-1 sm:flex-none p-3 bg-red-950/20 text-red-500 border border-red-900/30 rounded-xl hover:bg-red-600 hover:text-white transition-all text-xs shadow-inner" title="Apagar Filme">
-                          🗑️
-                        </button>
+                        {/* 🪄 BOTÃO AO VIVO (Só aparece se o filme estiver sugerido) */}
+                        {filme.status === 'sugerido' && (
+                           <button onClick={() => iniciarSessao(filme.id, filme.titulo)} className="flex-1 sm:flex-none px-3 py-2 bg-red-900/20 text-red-500 border border-red-900/30 rounded-xl hover:bg-red-600 hover:text-white transition-all text-[10px] font-black uppercase" title="Iniciar Sessão Ao Vivo">
+                             ▶ PLAY
+                           </button>
+                        )}
+                        <button onClick={() => abrirModalEdicao(filme)} className="flex-1 sm:flex-none p-2 bg-blue-900/20 text-blue-500 border border-blue-900/30 rounded-xl hover:bg-blue-600 hover:text-white transition-all text-xs" title="Editar">✏️</button>
+                        <button onClick={() => deletarFilme(filme.id, filme.titulo)} className="flex-1 sm:flex-none p-2 bg-gray-900/50 text-gray-400 border border-gray-700 rounded-xl hover:bg-red-600 hover:text-white hover:border-transparent transition-all text-xs" title="Apagar">🗑️</button>
                       </div>
                     </div>
                   );
-                }) : <div className="text-center py-10 text-gray-600 italic text-xs">Acervo limpo.</div>}
+                }) : <div className="text-center py-10 text-gray-600 italic text-xs">Nenhum filme encontrado.</div>}
               </div>
             </section>
 
-            <section className="bg-[#111111] p-8 rounded-[2rem] border border-white/5 shadow-2xl">
-              <h3 className="text-[11px] font-black text-blue-500 tracking-[0.2em] mb-8 flex items-center gap-2 uppercase">
-                 <span className="w-6 h-[2px] bg-blue-600"></span> Monitoramento de Resenhas
-              </h3>
-              <div className="grid grid-cols-1 gap-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                {comentariosRecentes.length > 0 ? comentariosRecentes.map(c => (
-                  <div key={c.id} className="p-5 bg-black/40 rounded-2xl border border-white/5 flex items-start justify-between hover:border-red-600/30 transition-all">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-3">
-                        <img src={c.usuarioFoto || "https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y"} className="w-7 h-7 rounded-full border border-white/10 object-cover" alt="Avatar" />
-                        <span className="text-[10px] font-black text-white uppercase tracking-[0.2em]">{c.usuarioNome || "Anônimo"}</span>
-                      </div>
-                      <p className="text-sm text-gray-400 italic leading-relaxed pr-4">"{c.texto}"</p>
-                    </div>
-                    <button onClick={() => apagarResenha(c.id)} className="p-3 bg-red-950/20 text-red-500 border border-red-900/30 rounded-xl hover:bg-red-600 hover:text-white transition-all text-xs shadow-inner mt-1">
-                      🗑️
-                    </button>
-                  </div>
-                )) : <div className="text-center py-16 text-gray-700 italic border border-dashed border-white/5 rounded-3xl text-[10px] font-black uppercase tracking-widest">Sem evidências no mural...</div>}
-              </div>
-            </section>
           </div>
         </div>
 
-        {/* 🪄 NOVO: PAINEL DE CONTROLE DE ACESSOS (USER TRACKER) */}
+        {/* CONTROLE DE ACESSOS */}
         <section className="bg-[#111111] p-8 rounded-[2rem] border border-white/5 shadow-2xl mt-10">
-          <h3 className="text-[11px] font-black text-purple-500 tracking-[0.2em] mb-8 flex items-center gap-2 uppercase">
-            <span className="w-6 h-[2px] bg-purple-600"></span> Banco de Usuários (Google Auth)
-          </h3>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+            <h3 className="text-[11px] font-black text-purple-500 tracking-[0.2em] uppercase">
+              Banco de Usuários (Auth)
+            </h3>
+            {/* 🪄 BARRA DE PESQUISA */}
+            <input 
+              type="text" placeholder="Buscar usuário..." value={filtroUsuarios} onChange={(e) => setFiltroUsuarios(e.target.value)}
+              className="bg-black border border-white/10 rounded-lg px-4 py-2 text-xs outline-none focus:border-purple-500 w-full sm:w-64"
+            />
+          </div>
+          
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-            {listaUsuarios.map(u => {
+            {usuariosFiltrados.map(u => {
               const isMembro = listaMembros.includes(u.email);
               const isAdminUser = listaAdmins.includes(u.email);
               
               return (
                 <div key={u.email} className="bg-black/40 p-4 rounded-2xl border border-white/5 flex flex-col justify-between hover:border-white/20 transition-all">
                    <div className="flex items-center gap-3 mb-4">
-                     <img src={u.foto || "https://via.placeholder.com/150"} className="w-10 h-10 rounded-full border border-white/10 object-cover" alt={u.nome} />
+                     <img src={u.foto || "https://www.gravatar.com/avatar/?d=mp"} className="w-10 h-10 rounded-full border border-white/10 object-cover" alt={u.nome} />
                      <div className="flex flex-col overflow-hidden">
                        <span className="text-xs font-black text-white truncate">{u.nome}</span>
                        <span className="text-[9px] text-gray-500 truncate">{u.email}</span>
@@ -378,7 +393,7 @@ export default function PainelAdmin() {
                      {isMembro ? (
                        <button onClick={() => removerMembro(u.email)} className="flex-1 bg-green-900/20 text-green-500 border border-green-900/30 py-2 rounded-xl text-[9px] font-black uppercase hover:bg-red-900/30 hover:text-red-500 hover:border-red-900/50 transition-all">Autorizado</button>
                      ) : (
-                       <button onClick={() => autorizarUsuario(u.email)} className="flex-1 bg-white/5 text-gray-400 border border-white/10 py-2 rounded-xl text-[9px] font-black uppercase hover:bg-green-600 hover:text-white hover:border-green-500 transition-all shadow-md">Liberar Acesso</button>
+                       <button onClick={() => autorizarUsuario(u.email)} className="flex-1 bg-white/5 text-gray-400 border border-white/10 py-2 rounded-xl text-[9px] font-black uppercase hover:bg-green-600 hover:text-white hover:border-green-500 transition-all shadow-md">Liberar</button>
                      )}
                      
                      {isAdminUser ? (
@@ -391,9 +406,9 @@ export default function PainelAdmin() {
               )
             })}
             
-            {listaUsuarios.length === 0 && (
+            {usuariosFiltrados.length === 0 && (
               <div className="col-span-full py-10 text-center text-gray-600 text-xs italic font-bold">
-                Ninguém logou ainda. O radar está ativo!
+                Nenhum usuário encontrado na busca.
               </div>
             )}
           </div>
