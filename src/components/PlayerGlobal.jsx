@@ -7,7 +7,7 @@ import toast from "react-hot-toast";
 import PainelKaraoke from "./PainelKaraoke";
 
 // 🪄 COLOQUE A SUA CHAVE DA API DO YOUTUBE AQUI PARA O AUTO-DJ FUNCIONAR
-const YOUTUBE_API_KEY = "COLOQUE_AQUI_A_SUA_CHAVE_DO_YOUTUBE"; 
+const YOUTUBE_API_KEY = "AIzaSyDq8o6rJNZpvyNWyA1wZqv3j09X9f4zPIw"; 
 
 export default function PlayerGlobal({ isOwner, usuarioLogado }) {
   const [track, setTrack] = useState(null);
