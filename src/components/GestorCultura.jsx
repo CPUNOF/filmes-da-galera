@@ -6,7 +6,7 @@ import { db } from "@/lib/firebase";
 import { collection, addDoc, doc, updateDoc, deleteDoc } from "firebase/firestore";
 import toast from "react-hot-toast";
 
-// 🪄 AS SUAS CHAVES AQUI (Sem elas, a busca e os trailers não funcionam!)
+// 🪄 AS SUAS CHAVES AQUI
 const TMDB_API_KEY = "5e0b606e87348f0592b761526df56825";
 const YOUTUBE_API_KEY = "AIzaSyDq8o6rJNZpvyNWyA1wZqv3j09X9f4zPIw"; 
 
@@ -23,6 +23,7 @@ export default function GestorCultura({ usuarioLogado, recarregarDados }) {
 
   const [itemEditando, setItemEditando] = useState(null);
   const [salvando, setSalvando] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false); // 🪄 NOVO ESTADO DE EXCLUSÃO
   
   const [form, setForm] = useState({
     titulo: "", capa: "", sinopse: "", artista: "", 
@@ -39,6 +40,7 @@ export default function GestorCultura({ usuarioLogado, recarregarDados }) {
     window.abrirGestorCultura = (tipoSolicitado, itemExistente = null) => {
       setTipo(tipoSolicitado || "Série");
       setTrailerUrl(""); 
+      setConfirmDelete(false); // Garante que a tela de excluir fecha ao abrir o modal
       
       if (itemExistente) {
         setForm({
@@ -60,7 +62,6 @@ export default function GestorCultura({ usuarioLogado, recarregarDados }) {
     return () => { delete window.abrirGestorCultura; };
   }, []);
 
-  // 🪄 IA DE RECOMENDAÇÕES (Dispara quando a busca está vazia)
   const buscarRecomendacoes = async () => {
     setBuscando(true);
     let list = [];
@@ -94,7 +95,6 @@ export default function GestorCultura({ usuarioLogado, recarregarDados }) {
     setBuscando(false);
   };
 
-  // BUSCA TRADICIONAL
   const buscarNaAPIAutocomplete = async () => {
     setBuscando(true);
     let list = [];
@@ -138,7 +138,6 @@ export default function GestorCultura({ usuarioLogado, recarregarDados }) {
     }
   }, [query, tipo, step]);
 
-  // BUSCA TRAILER (Passo 2)
   useEffect(() => {
     if (step === 2 && (tipo === "Série" || tipo === "Anime") && form.titulo && !trailerUrl) {
       const fetchTrailer = async () => {
@@ -202,27 +201,21 @@ export default function GestorCultura({ usuarioLogado, recarregarDados }) {
     setSalvando(false);
   };
 
-  const apagarRegistro = () => {
-    toast((t) => (
-      <div className="flex flex-col gap-4 text-center items-center justify-center p-2">
-        <span className="text-sm font-black uppercase tracking-widest text-white">Apagar da Coleção?</span>
-        <span className="text-[10px] text-gray-400 uppercase font-bold">Esta ação não pode ser desfeita.</span>
-        <div className="flex gap-3 justify-center w-full mt-2">
-          <button onClick={() => { toast.dismiss(t.id); executarApagar(); }} className="flex-1 bg-red-600 hover:bg-red-500 text-white px-4 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors shadow-lg">Apagar</button>
-          <button onClick={() => toast.dismiss(t.id)} className="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors">Cancelar</button>
-        </div>
-      </div>
-    ), { duration: Infinity, style: { background: '#111111', color: '#fff', border: '1px solid rgba(239,68,68,0.5)', padding: '16px', borderRadius: '16px', boxShadow: '0 20px 50px rgba(0,0,0,0.8)' } });
-  };
-
+  // 🪄 A NOVA FUNÇÃO QUE APAGA DIRETO NO FIREBASE
   const executarApagar = async () => {
     const t = toast.loading("A remover...");
     try {
       await deleteDoc(doc(db, "perfil_cultura", itemEditando.id));
-      toast.dismiss(t); toast.success("Removido! 🗑️", { style: { background: '#111', color: '#fff', border: '1px solid #ef4444' }});
+      toast.dismiss(t); 
+      toast.success("Removido com sucesso! 🗑️", { style: { background: '#111', color: '#fff', border: '1px solid #ef4444' }});
       if (recarregarDados) recarregarDados();
       setIsOpen(false);
-    } catch(e) { toast.dismiss(t); toast.error("Erro ao remover."); }
+      setConfirmDelete(false);
+    } catch(e) { 
+      toast.dismiss(t); 
+      toast.error("Erro ao remover."); 
+      setConfirmDelete(false); 
+    }
   };
 
   const modalContent = (
@@ -234,12 +227,33 @@ export default function GestorCultura({ usuarioLogado, recarregarDados }) {
         @keyframes openBook { 0% { transform: rotateY(0deg); } 100% { transform: rotateY(-135deg); } }
         .book-front { backface-visibility: hidden; }
         .book-back { transform: rotateY(180deg); backface-visibility: hidden; }
+        .fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
       `}</style>
 
       <div className={`bg-[#111111] border border-${theme}-500/30 rounded-[2rem] w-full max-w-4xl h-[550px] max-h-[90vh] shadow-[0_0_60px_rgba(0,0,0,0.6)] flex flex-col md:flex-row relative overflow-hidden`} onClick={e => e.stopPropagation()}>
+        
+        {/* 🪄 OVERLAY DE CONFIRMAÇÃO DE EXCLUSÃO (Por cima de tudo no modal) */}
+        {confirmDelete && (
+          <div className="absolute inset-0 z-[999] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 fade-in">
+             <div className="bg-[#0a0a0a] border border-red-500/30 p-6 sm:p-8 rounded-2xl shadow-[0_0_50px_rgba(220,38,38,0.3)] flex flex-col items-center text-center max-w-sm w-full">
+                <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mb-4 border border-red-500/50">
+                  <svg fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" className="w-8 h-8 text-red-500"><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
+                </div>
+                <h3 className="text-white font-black uppercase tracking-widest text-lg sm:text-xl mb-1">Apagar Obra?</h3>
+                <p className="text-gray-400 text-[10px] sm:text-xs font-bold uppercase mb-6 leading-relaxed">Esta ação vai remover o item da sua coleção para sempre.</p>
+                <div className="flex gap-3 w-full">
+                  <button onClick={() => setConfirmDelete(false)} className="flex-1 bg-white/5 hover:bg-white/10 text-white font-black text-[10px] sm:text-xs uppercase tracking-widest py-3.5 rounded-xl transition-all border border-white/10">Cancelar</button>
+                  <button onClick={executarApagar} className="flex-1 bg-red-600 hover:bg-red-500 text-white font-black text-[10px] sm:text-xs uppercase tracking-widest py-3.5 rounded-xl transition-all shadow-[0_0_15px_rgba(220,38,38,0.5)]">Sim, Apagar</button>
+                </div>
+             </div>
+          </div>
+        )}
+
+        {/* Botão de Fechar Modal */}
         <button onClick={() => setIsOpen(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white z-50 bg-black/50 hover:bg-red-600 transition-colors w-8 h-8 rounded-full flex items-center justify-center font-black shadow-lg">✕</button>
 
-        {/* 🪄 PASSO 1: MODAL DE BUSCA TOTALMENTE MODERNIZADO */}
+        {/* STEP 1: BUSCA GLOBAL */}
         {step === 1 && (
           <div className="w-full p-6 sm:p-10 flex flex-col h-full overflow-y-auto custom-scrollbar">
             
@@ -256,8 +270,7 @@ export default function GestorCultura({ usuarioLogado, recarregarDados }) {
               ))}
             </div>
 
-            {/* BARRA DE PESQUISA COM SVG E NEON */}
-            <div className="relative mb-6 z-50 shrink-0 group">
+            <div className="relative mb-6 z-40 shrink-0 group">
               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-white transition-colors">
                 <svg fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
               </span>
@@ -271,17 +284,13 @@ export default function GestorCultura({ usuarioLogado, recarregarDados }) {
               {buscando && <div className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
             </div>
 
-            {/* ÁREA DE RESULTADOS E SUGESTÕES (GRID) */}
             <div className="flex flex-col flex-1 pb-4">
-              
-              {/* TÍTULO SE FOR RECOMENDAÇÃO */}
               {query.length === 0 && !buscando && (
                 <h3 className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
                   <svg fill="currentColor" viewBox="0 0 24 24" className="w-3.5 h-3.5 text-yellow-500"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg> 
                   Sugestões em Alta
                 </h3>
               )}
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {resultados.map((r, i) => (
                   <div key={i} onClick={() => selecionarItem(r)} className={`flex items-center gap-3 p-2 bg-black/30 hover:bg-${theme}-500/20 cursor-pointer transition-all border border-white/5 hover:border-${theme}-500/40 rounded-2xl group shadow-lg`}>
@@ -290,14 +299,12 @@ export default function GestorCultura({ usuarioLogado, recarregarDados }) {
                       <span className="text-xs font-black text-white uppercase truncate">{r.titulo}</span>
                       <span className={`text-[9px] text-${theme}-400 font-bold uppercase truncate mt-0.5`}>{r.sinopse || r.artista}</span>
                     </div>
-                    {/* SVG DE ADICIONAR NO LUGAR DO LÁPIS */}
                     <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-white/20 transition-colors mr-2 shrink-0">
                       <svg fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" className="w-4 h-4 text-white"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/></svg>
                     </div>
                   </div>
                 ))}
               </div>
-
               {!buscando && query.length > 2 && resultados.length === 0 && (
                 <div className="text-center opacity-40 pt-10 flex-1 flex flex-col items-center justify-center">
                   <svg fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" className="w-16 h-16 mb-4 text-gray-500"><path strokeLinecap="round" strokeLinejoin="round" d="M15.042 21.672L13.684 16.6m0 0l-2.51 2.225.569-9.47 5.227 7.917-3.286-.672zM12 2.25V4.5m5.834.166l-1.591 1.591M20.25 10.5H18M7.757 14.743l-1.59 1.59M6 10.5H3.75m4.007-4.54l-1.59-1.59"/></svg>
@@ -308,6 +315,7 @@ export default function GestorCultura({ usuarioLogado, recarregarDados }) {
           </div>
         )}
 
+        {/* STEP 2: EDIÇÃO COM O LIVRO 3D E VIDEOCLIPE */}
         {step === 2 && (
           <>
             <div className="w-full md:w-2/5 bg-[#0a0a0a] flex flex-col items-center justify-center p-6 border-r border-white/5 relative overflow-hidden perspective-container">
@@ -381,8 +389,11 @@ export default function GestorCultura({ usuarioLogado, recarregarDados }) {
                   <textarea placeholder="O que achou desta obra? (Seus amigos vão ler!)" value={form.sinopse} onChange={e => setForm({...form, sinopse: e.target.value})} className={`w-full bg-[#1a1a1a] border border-white/5 rounded-lg p-3 sm:p-4 text-[10px] sm:text-xs font-medium text-gray-300 outline-none focus:border-${theme}-500 resize-none shadow-inner flex-1 leading-relaxed`} />
                 </div>
                 <div className="flex gap-3 pt-2 shrink-0 mt-2">
+                  {/* 🪄 NOVO: O BOTÃO DA LIXEIRA AGORA ATIVA O ESTADO DE CONFIRMAÇÃO EM VEZ DO TOAST */}
                   {itemEditando && (
-                    <button type="button" onClick={apagarRegistro} className="bg-red-900/20 border border-red-500/30 text-red-500 hover:bg-red-600 hover:text-white w-12 rounded-xl font-black transition-all flex items-center justify-center shrink-0">🗑️</button>
+                    <button type="button" onClick={() => setConfirmDelete(true)} className="bg-red-900/20 border border-red-500/30 text-red-500 hover:bg-red-600 hover:text-white w-12 rounded-xl font-black transition-all flex items-center justify-center shrink-0">
+                      <svg fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
+                    </button>
                   )}
                   <button type="submit" disabled={salvando} className={`flex-1 bg-${theme}-600 hover:bg-${theme}-500 text-white font-black uppercase tracking-widest text-[10px] sm:text-xs py-3.5 sm:py-4 rounded-xl transition-all shadow-[0_0_15px_rgba(0,0,0,0.4)] disabled:opacity-50`}>
                     {salvando ? "A processar..." : `💾 Salvar ${itemEditando ? 'Progresso' : ''}`}

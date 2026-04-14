@@ -1,6 +1,7 @@
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "react-hot-toast"; // 👈 Importamos o Toaster aqui
+import PlayerGlobal from "@/components/PlayerGlobal";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -34,6 +35,8 @@ export default function RootLayout({ children }) {
             },
           }}
         />
+
+        <PlayerGlobal />
       </body>
     </html>
   );
