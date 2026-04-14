@@ -36,7 +36,7 @@ export default function PerfilUsuario({ params }) {
   
   const [carregando, setCarregando] = useState(true);
 
-  const [dadosGamer, setDadosGamer] = useState({ ingressos: 0, progresso: 0, ultimoAcesso: null, trailerCapa: null });
+  const [dadosGamer, setDadosGamer] = useState({ ingressos: 0, progresso: 0, ultimoAcesso: null, trailerCapa: null, humorDoDia: null, sessaoJam: null });
   const [temaPerfil, setTemaPerfil] = useState("padrao"); 
   const [modalTema, setModalTema] = useState(false); 
   
@@ -58,30 +58,36 @@ export default function PerfilUsuario({ params }) {
     return () => unsubscribe();
   }, []);
 
-  // 🪄 ATUALIZA O STATUS ONLINE DO UTILIZADOR LOGADO
+  // 🪄 1. ATUALIZA O STATUS ONLINE DO LOGADO (CORRIGIDO PARA USAR O EMAIL)
   useEffect(() => {
-    if (usuarioLogado) {
-      updateDoc(doc(db, "usuarios", usuarioLogado.email.toLowerCase()), { ultimoAcesso: serverTimestamp() }).catch(() => {});
+    if (usuarioLogado && usuarioLogado.email) {
+      updateDoc(doc(db, "usuarios", usuarioLogado.email.toLowerCase()), { 
+        ultimoAcesso: serverTimestamp() 
+      }).catch(() => {});
     }
   }, [usuarioLogado]);
 
-  // 🪄 1. O MATCH DE PERFIL CULTURAL (Corrigido para não falhar por assincronia)
+  // 🪄 2. MATCH CULTURAL GARANTIDO
   useEffect(() => {
-    const calcularMatch = async () => {
+    const calcularMatchSeguro = async () => {
       const resolvedParams = await params;
       const uidUrl = resolvedParams?.id;
       if (usuarioLogado && uidUrl && usuarioLogado.uid !== uidUrl) {
-        const char1 = usuarioLogado.uid.charCodeAt(0) || 50; 
-        const char2 = uidUrl.charCodeAt(0) || 50;
-        setMatchScore(65 + ((char1 + char2) % 35)); // Gera sempre um score entre 65 e 99!
+        const combinado = usuarioLogado.uid > uidUrl ? usuarioLogado.uid + uidUrl : uidUrl + usuarioLogado.uid;
+        let hash = 0;
+        for (let i = 0; i < combinado.length; i++) {
+          hash = combinado.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const score = 70 + (Math.abs(hash) % 30);
+        setMatchScore(score);
       } else {
         setMatchScore(null);
       }
     };
-    calcularMatch();
+    calcularMatchSeguro();
   }, [params, usuarioLogado]);
 
-  // 🪄 2. A CUTUCADA MONSTRUOSA (Vibração Física + Tremor de Tela Corrigidos)
+  // 🪄 3. A CUTUCADA DESTRUIDORA
   useEffect(() => {
     if (!usuarioLogado) return;
     const q = query(collection(db, "notificacoes"), where("paraUid", "==", usuarioLogado.uid));
@@ -94,15 +100,14 @@ export default function PerfilUsuario({ params }) {
       });
       
       if (novasCutucadas.length > 0) {
-        // Truque para forçar o React a reiniciar a animação de Tremor
         setIsShaking(false);
-        setTimeout(() => setIsShaking(true), 50);
-        setTimeout(() => setIsShaking(false), 2000); 
-        
-        // Faz o TELEMÓVEL vibrar de verdade se o navegador permitir!
-        if (typeof window !== 'undefined' && window.navigator && window.navigator.vibrate) {
-          window.navigator.vibrate([500, 200, 500, 200, 1000]);
-        }
+        setTimeout(() => {
+          setIsShaking(true);
+          if (typeof window !== 'undefined' && navigator.vibrate) {
+            navigator.vibrate([500, 200, 500, 200, 1000]);
+          }
+        }, 10);
+        setTimeout(() => setIsShaking(false), 2500); 
 
         const uniqueCutucadores = []; 
         const mapUids = new Set();
@@ -130,20 +135,24 @@ export default function PerfilUsuario({ params }) {
     } catch(e) { toast.dismiss(t); toast.error("Erro ao revidar."); }
   }
 
-  // 🪄 LÊ O STATUS ONLINE DO PERFIL QUE ESTAMOS A VER
+  // 🪄 4. ESCUTA O STATUS ONLINE E DADOS GAMER DO DONO DO PERFIL (CORRIGIDO PARA O BUG DOS INGRESSOS)
   useEffect(() => {
     let emailBusca = usuarioPerfil?.email;
-    if (!emailBusca && usuarioLogado && usuarioPerfil?.uid === usuarioLogado.uid) emailBusca = usuarioLogado.email;
+    // Se o perfil for do logado e o email de busca falhar, pega o do logado.
+    if (!emailBusca && usuarioLogado && usuarioPerfil?.uid === usuarioLogado.uid) {
+      emailBusca = usuarioLogado.email;
+    }
+    
     if (!emailBusca) return;
     
-    const unsubscribe = onSnapshot(doc(db, "usuarios", emailBusca.toLowerCase()), (docSnap) => {
+    const docRef = doc(db, "usuarios", emailBusca.toLowerCase());
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const d = docSnap.data();
         setDadosGamer({ 
           ingressos: d.ingressosDourados || 0, 
           progresso: d.votosParaIngresso || 0, 
-          // Correção da conversão de Data do Firebase
-          ultimoAcesso: d.ultimoAcesso?.toDate ? d.ultimoAcesso.toDate() : null, 
+          ultimoAcesso: d.ultimoAcesso?.toDate ? d.ultimoAcesso.toDate() : (d.ultimoAcesso ? new Date(d.ultimoAcesso) : null),
           trailerCapa: d.trailerCapa || null,
           humorDoDia: d.humorDoDia || null,
           sessaoJam: d.sessaoJam || null
@@ -195,19 +204,28 @@ export default function PerfilUsuario({ params }) {
       const resultadosVotos = await Promise.all(promessasDeVotos);
       setFilmesComNotas(resultadosVotos.filter(f => f !== null).sort((a, b) => b.notaDoUsuario - a.notaDoUsuario));
 
-      let nome = "Cinéfilo Desconhecido"; let foto = "https://via.placeholder.com/150"; let emailEncontrado = "";
+      // Busca infalível para pegar o email do membro e garantir que o Status e os Ingressos apareçam!
+      let nome = "Cinéfilo Desconhecido"; let foto = "https://api.dicebear.com/7.x/initials/svg?seed=U"; let emailEncontrado = "";
+      
       try {
         const snapUser = await getDocs(query(collection(db, "usuarios"), where("uid", "==", uidUrl)));
-        if (!snapUser.empty) { const dataU = snapUser.docs[0].data(); nome = dataU.nome; foto = dataU.foto; emailEncontrado = dataU.email; }
+        if (!snapUser.empty) { 
+          const dataU = snapUser.docs[0].data(); 
+          nome = dataU.nome || nome; 
+          foto = dataU.foto || foto; 
+          emailEncontrado = snapUser.docs[0].id; // O ID do documento é o email!
+        }
       } catch(e) {}
       
-      if (nome === "Cinéfilo Desconhecido" && todosFilmes.filter(f => f.sugeridoPor?.uid === uidUrl).length > 0) {
+      if (!emailEncontrado && todosFilmes.filter(f => f.sugeridoPor?.uid === uidUrl).length > 0) {
         const first = todosFilmes.filter(f => f.sugeridoPor?.uid === uidUrl)[0];
-        nome = first.sugeridoPor?.nome; foto = first.sugeridoPor?.foto; emailEncontrado = first.sugeridoPor?.email || "";
+        nome = first.sugeridoPor?.nome || nome; 
+        foto = first.sugeridoPor?.foto || foto; 
+        emailEncontrado = first.sugeridoPor?.email || "";
       }
+      
       setUsuarioPerfil({ uid: uidUrl, nome, foto, email: emailEncontrado });
 
-      // Ranking Calc
       try {
         const placar = {};
         todosFilmes.forEach(f => { if (f.status === "sugerido" && Array.isArray(f.upvotes)) f.upvotes.forEach(u => { placar[u] = (placar[u] || 0) + 1; }); });
@@ -270,11 +288,11 @@ export default function PerfilUsuario({ params }) {
     } catch (error) { toast.dismiss(t); toast.error("Erro ao cutucar."); }
   };
 
-  // 🪄 3. SISTEMA "ONLINE AGORA" (Corrigido para cálculos precisos)
   const checarStatusOnline = () => {
     if (!dadosGamer.ultimoAcesso) return { texto: "Status Oculto", cor: "bg-gray-500" };
+    
     const agora = new Date();
-    const dt = dadosGamer.ultimoAcesso;
+    const dt = new Date(dadosGamer.ultimoAcesso);
     const diffMinutos = (agora - dt) / 1000 / 60;
     
     if (diffMinutos < 5) return { texto: "Online", cor: "bg-green-500", glow: "shadow-[0_0_15px_rgba(34,197,94,0.8)]" };
@@ -288,8 +306,10 @@ export default function PerfilUsuario({ params }) {
     setTemaPerfil(novoTema);
     const t = toast.loading("Aplicando Skin...");
     try {
-      await updateDoc(doc(db, "usuarios", usuarioLogado.email.toLowerCase()), { temaPerfil: novoTema });
-      toast.dismiss(t); toast.success("Tema atualizado!"); setModalTema(false);
+      if (usuarioLogado && usuarioLogado.email) {
+        await updateDoc(doc(db, "usuarios", usuarioLogado.email.toLowerCase()), { temaPerfil: novoTema });
+        toast.dismiss(t); toast.success("Tema atualizado!"); setModalTema(false);
+      }
     } catch(e) { toast.dismiss(t); toast.error("Erro ao salvar tema."); }
   };
 
@@ -319,17 +339,17 @@ export default function PerfilUsuario({ params }) {
     <main className={`min-h-screen text-white pb-20 overflow-x-hidden font-sans relative ${isShaking ? 'anim-shake' : ''} ${getThemeClasses()} transition-colors duration-1000`}>
       <Navbar />
       <style>{`
-        /* Animação aprimorada de terremoto */
+        /* 🪄 O NOVO TERREMOTO: Muito mais violento e agressivo! */
         .anim-shake { 
-          animation: extremeShake 0.5s cubic-bezier(.36,.07,.19,.97) both; 
-          animation-iteration-count: 3; 
+          animation: extremeShake 0.15s cubic-bezier(.36,.07,.19,.97) infinite !important; 
+          transform-origin: center center;
         } 
         @keyframes extremeShake { 
-          0%, 100% { transform: translate(0, 0) rotate(0deg); } 
-          20% { transform: translate(-5px, 2px) rotate(2deg); } 
-          40% { transform: translate(5px, -2px) rotate(-2deg); } 
-          60% { transform: translate(-5px, -2px) rotate(2deg); } 
-          80% { transform: translate(5px, 2px) rotate(-2deg); } 
+          0% { transform: translate(15px, 15px) rotate(0deg); }
+          25% { transform: translate(-15px, -15px) rotate(-3deg); }
+          50% { transform: translate(-15px, 15px) rotate(3deg); }
+          75% { transform: translate(15px, -15px) rotate(-3deg); }
+          100% { transform: translate(15px, 15px) rotate(0deg); }
         }
         
         .custom-scrollbar::-webkit-scrollbar { width: 6px; } 
