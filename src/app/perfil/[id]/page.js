@@ -31,8 +31,8 @@ export default function PerfilUsuario({ params }) {
   const [todosOsFilmes, setTodosOsFilmes] = useState([]);
   const [itensCultura, setItemsCultura] = useState([]); 
 
-  const [abaAtiva, setAbaAtiva] = useState("filmes"); // 🪄 AGORA COMEÇA EM 'filmes'
-  const [subAbaFilmes, setSubAbaFilmes] = useState("sugeridos"); // 🪄 NOVO ESTADO PARA AS SUB-ABAS
+  const [abaAtiva, setAbaAtiva] = useState("filmes"); 
+  const [subAbaFilmes, setSubAbaFilmes] = useState("sugeridos"); 
   
   const [carregando, setCarregando] = useState(true);
 
@@ -58,26 +58,65 @@ export default function PerfilUsuario({ params }) {
     return () => unsubscribe();
   }, []);
 
+  // 🪄 ATUALIZA O STATUS ONLINE DO UTILIZADOR LOGADO
   useEffect(() => {
-    if (usuarioLogado) updateDoc(doc(db, "usuarios", usuarioLogado.email.toLowerCase()), { ultimoAcesso: serverTimestamp() }).catch(() => {});
+    if (usuarioLogado) {
+      updateDoc(doc(db, "usuarios", usuarioLogado.email.toLowerCase()), { ultimoAcesso: serverTimestamp() }).catch(() => {});
+    }
   }, [usuarioLogado]);
 
+  // 🪄 1. O MATCH DE PERFIL CULTURAL (Corrigido para não falhar por assincronia)
+  useEffect(() => {
+    const calcularMatch = async () => {
+      const resolvedParams = await params;
+      const uidUrl = resolvedParams?.id;
+      if (usuarioLogado && uidUrl && usuarioLogado.uid !== uidUrl) {
+        const char1 = usuarioLogado.uid.charCodeAt(0) || 50; 
+        const char2 = uidUrl.charCodeAt(0) || 50;
+        setMatchScore(65 + ((char1 + char2) % 35)); // Gera sempre um score entre 65 e 99!
+      } else {
+        setMatchScore(null);
+      }
+    };
+    calcularMatch();
+  }, [params, usuarioLogado]);
+
+  // 🪄 2. A CUTUCADA MONSTRUOSA (Vibração Física + Tremor de Tela Corrigidos)
   useEffect(() => {
     if (!usuarioLogado) return;
     const q = query(collection(db, "notificacoes"), where("paraUid", "==", usuarioLogado.uid));
     const unsubscribe = onSnapshot(q, (snap) => {
       const novasCutucadas = [];
       snap.docChanges().forEach((change) => {
-        if (change.type === "added" && change.doc.data().lida === false) novasCutucadas.push({ id: change.doc.id, ...change.doc.data() });
+        if (change.type === "added" && change.doc.data().lida === false) {
+          novasCutucadas.push({ id: change.doc.id, ...change.doc.data() });
+        }
       });
+      
       if (novasCutucadas.length > 0) {
-        setIsShaking(true); setTimeout(() => setIsShaking(false), 1000); 
-        const uniqueCutucadores = []; const mapUids = new Set();
+        // Truque para forçar o React a reiniciar a animação de Tremor
+        setIsShaking(false);
+        setTimeout(() => setIsShaking(true), 50);
+        setTimeout(() => setIsShaking(false), 2000); 
+        
+        // Faz o TELEMÓVEL vibrar de verdade se o navegador permitir!
+        if (typeof window !== 'undefined' && window.navigator && window.navigator.vibrate) {
+          window.navigator.vibrate([500, 200, 500, 200, 1000]);
+        }
+
+        const uniqueCutucadores = []; 
+        const mapUids = new Set();
+        
         novasCutucadas.forEach(n => {
-          if (!mapUids.has(n.deUid)) { mapUids.add(n.deUid); uniqueCutucadores.push({ uid: n.deUid, nome: n.deNome, foto: n.deFoto }); }
+          if (!mapUids.has(n.deUid)) { 
+            mapUids.add(n.deUid); 
+            uniqueCutucadores.push({ uid: n.deUid, nome: n.deNome, foto: n.deFoto }); 
+          }
           updateDoc(doc(db, "notificacoes", n.id), { lida: true }).catch(() => {});
         });
-        setCutucadores(uniqueCutucadores); setShowNudgeModal(true); 
+        
+        setCutucadores(uniqueCutucadores); 
+        setShowNudgeModal(true); 
       }
     });
     return () => unsubscribe();
@@ -91,17 +130,20 @@ export default function PerfilUsuario({ params }) {
     } catch(e) { toast.dismiss(t); toast.error("Erro ao revidar."); }
   }
 
+  // 🪄 LÊ O STATUS ONLINE DO PERFIL QUE ESTAMOS A VER
   useEffect(() => {
     let emailBusca = usuarioPerfil?.email;
     if (!emailBusca && usuarioLogado && usuarioPerfil?.uid === usuarioLogado.uid) emailBusca = usuarioLogado.email;
     if (!emailBusca) return;
+    
     const unsubscribe = onSnapshot(doc(db, "usuarios", emailBusca.toLowerCase()), (docSnap) => {
       if (docSnap.exists()) {
         const d = docSnap.data();
         setDadosGamer({ 
           ingressos: d.ingressosDourados || 0, 
           progresso: d.votosParaIngresso || 0, 
-          ultimoAcesso: d.ultimoAcesso?.toDate() || null, 
+          // Correção da conversão de Data do Firebase
+          ultimoAcesso: d.ultimoAcesso?.toDate ? d.ultimoAcesso.toDate() : null, 
           trailerCapa: d.trailerCapa || null,
           humorDoDia: d.humorDoDia || null,
           sessaoJam: d.sessaoJam || null
@@ -165,11 +207,7 @@ export default function PerfilUsuario({ params }) {
       }
       setUsuarioPerfil({ uid: uidUrl, nome, foto, email: emailEncontrado });
 
-      if (usuarioLogado && usuarioLogado.uid !== uidUrl) {
-        const char1 = usuarioLogado.uid.charCodeAt(0) || 50; const char2 = uidUrl.charCodeAt(0) || 50;
-        setMatchScore(65 + ((char1 + char2) % 34));
-      }
-
+      // Ranking Calc
       try {
         const placar = {};
         todosFilmes.forEach(f => { if (f.status === "sugerido" && Array.isArray(f.upvotes)) f.upvotes.forEach(u => { placar[u] = (placar[u] || 0) + 1; }); });
@@ -232,14 +270,18 @@ export default function PerfilUsuario({ params }) {
     } catch (error) { toast.dismiss(t); toast.error("Erro ao cutucar."); }
   };
 
+  // 🪄 3. SISTEMA "ONLINE AGORA" (Corrigido para cálculos precisos)
   const checarStatusOnline = () => {
-    if (!dadosGamer.ultimoAcesso) return { texto: "Status Desconhecido", cor: "bg-gray-500" };
-    const diff = (new Date() - dadosGamer.ultimoAcesso) / 1000 / 60;
-    if (diff < 5) return { texto: "Online", cor: "bg-green-500", glow: "shadow-[0_0_10px_rgba(34,197,94,0.8)]" };
-    const dt = dadosGamer.ultimoAcesso; const hoje = new Date();
-    const ehHoje = dt.getDate() === hoje.getDate() && dt.getMonth() === hoje.getMonth();
+    if (!dadosGamer.ultimoAcesso) return { texto: "Status Oculto", cor: "bg-gray-500" };
+    const agora = new Date();
+    const dt = dadosGamer.ultimoAcesso;
+    const diffMinutos = (agora - dt) / 1000 / 60;
+    
+    if (diffMinutos < 5) return { texto: "Online", cor: "bg-green-500", glow: "shadow-[0_0_15px_rgba(34,197,94,0.8)]" };
+    
+    const ehHoje = dt.getDate() === agora.getDate() && dt.getMonth() === agora.getMonth() && dt.getFullYear() === agora.getFullYear();
     const hr = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    return { texto: ehHoje ? `Visto hoje às ${hr}` : `Visto em ${dt.toLocaleDateString('pt-BR')} às ${hr}`, cor: "bg-gray-500" };
+    return { texto: ehHoje ? `Visto hoje às ${hr}` : `Visto a ${dt.toLocaleDateString('pt-BR')} às ${hr}`, cor: "bg-gray-500" };
   };
 
   const alterarTema = async (novoTema) => {
@@ -257,7 +299,7 @@ export default function PerfilUsuario({ params }) {
       case "vampiro": return "bg-gradient-to-br from-[#1a0000] via-[#2a0808] to-[#4a0808] bg-animate";
       case "matrix": return "bg-[#020a04] matrix-bg";
       case "oceano": return "bg-gradient-to-br from-[#000a1a] via-[#081b2a] to-[#082b4a] bg-animate";
-      default: return "bg-[#070707]"; // Padrão
+      default: return "bg-[#070707]";
     }
   };
 
@@ -277,8 +319,18 @@ export default function PerfilUsuario({ params }) {
     <main className={`min-h-screen text-white pb-20 overflow-x-hidden font-sans relative ${isShaking ? 'anim-shake' : ''} ${getThemeClasses()} transition-colors duration-1000`}>
       <Navbar />
       <style>{`
-        .anim-shake { animation: extremeShake 0.4s cubic-bezier(.36,.07,.19,.97) both; animation-iteration-count: 2; } 
-        @keyframes extremeShake { 0% { transform: translate(1px, 1px) rotate(0deg); } 20% { transform: translate(-4px, 0px) rotate(1deg); } 40% { transform: translate(2px, -2px) rotate(1deg); } 60% { transform: translate(-4px, 1px) rotate(0deg); } 80% { transform: translate(-2px, -2px) rotate(1deg); } 100% { transform: translate(1px, -3px) rotate(-1deg); } } 
+        /* Animação aprimorada de terremoto */
+        .anim-shake { 
+          animation: extremeShake 0.5s cubic-bezier(.36,.07,.19,.97) both; 
+          animation-iteration-count: 3; 
+        } 
+        @keyframes extremeShake { 
+          0%, 100% { transform: translate(0, 0) rotate(0deg); } 
+          20% { transform: translate(-5px, 2px) rotate(2deg); } 
+          40% { transform: translate(5px, -2px) rotate(-2deg); } 
+          60% { transform: translate(-5px, -2px) rotate(2deg); } 
+          80% { transform: translate(5px, 2px) rotate(-2deg); } 
+        }
         
         .custom-scrollbar::-webkit-scrollbar { width: 6px; } 
         .custom-scrollbar::-webkit-scrollbar-track { background: #0a0a0a; border-radius: 10px; } 
@@ -384,21 +436,15 @@ export default function PerfilUsuario({ params }) {
         <PainelInterativo dadosGamer={dadosGamer} todosMembros={todosMembros} />
         <EstatisticasWrapped itensCultura={itensCultura} filmesComNotas={filmesComNotas} />
 
-        {/* 🪄 BARRA DE NAVEGAÇÃO PRINCIPAL (MENOR E MAIS LIMPA) */}
         <div className="flex flex-col xl:flex-row items-center gap-4 mb-8 max-w-[100%]">
           <div className="flex overflow-x-auto hide-scrollbar bg-black/40 backdrop-blur-2xl border border-white/10 p-2 rounded-2xl sm:rounded-full w-full shadow-lg gap-2 snap-x snap-mandatory">
-            
-            {/* O BOTÃO UNIFICADO "FILMES" */}
             <button onClick={() => setAbaAtiva("filmes")} className={`px-4 sm:px-5 py-3 rounded-xl sm:rounded-full text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap shrink-0 snap-center ${abaAtiva === 'filmes' ? 'bg-blue-600/30 text-blue-300 shadow-md border border-blue-500/30' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>🎬 Filmes</button>
-            
-            {/* O RESTO DAS ABAS */}
             <button onClick={() => setAbaAtiva("series")} className={`px-4 sm:px-5 py-3 rounded-xl sm:rounded-full text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap shrink-0 snap-center ${abaAtiva === 'series' ? 'bg-purple-600/30 text-purple-300 shadow-md border border-purple-500/30' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>📺 Séries</button>
             <button onClick={() => setAbaAtiva("animes")} className={`px-4 sm:px-5 py-3 rounded-xl sm:rounded-full text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap shrink-0 snap-center ${abaAtiva === 'animes' ? 'bg-orange-600/30 text-orange-300 shadow-md border border-orange-500/30' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>🎌 Animes</button>
             <button onClick={() => setAbaAtiva("livros")} className={`px-4 sm:px-5 py-3 rounded-xl sm:rounded-full text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap shrink-0 snap-center ${abaAtiva === 'livros' ? 'bg-emerald-600/30 text-emerald-300 shadow-md border border-emerald-500/30' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>📚 Livros</button>
             <button onClick={() => setAbaAtiva("mangas")} className={`px-4 sm:px-5 py-3 rounded-xl sm:rounded-full text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap shrink-0 snap-center ${abaAtiva === 'mangas' ? 'bg-red-600/30 text-red-300 shadow-md border border-red-500/30' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>🏮 Mangás</button>
             <button onClick={() => setAbaAtiva("musicas")} className={`px-4 sm:px-5 py-3 rounded-xl sm:rounded-full text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap shrink-0 snap-center ${abaAtiva === 'musicas' ? 'bg-pink-600/30 text-pink-300 shadow-md border border-pink-500/30' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>🎵 Músicas</button>
             <button onClick={() => setAbaAtiva("avaliacoes")} className={`px-4 sm:px-5 py-3 rounded-xl sm:rounded-full text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap shrink-0 snap-center ${abaAtiva === 'avaliacoes' ? 'bg-white/20 text-white shadow-md' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>💬 Resenhas</button>
-
           </div>
           
           {isOwner && (
@@ -410,7 +456,6 @@ export default function PerfilUsuario({ params }) {
 
         <div className="animate-fade-in-up min-h-[400px]">
           
-          {/* 🪄 A NOVA ÁREA UNIFICADA DE FILMES */}
           {abaAtiva === "filmes" && (
             <div className="animate-fade-in-up max-w-5xl mx-auto">
               
@@ -420,7 +465,6 @@ export default function PerfilUsuario({ params }) {
                 </h2>
               </div>
 
-              {/* AS SUB-ABAS (PÍLULAS DE FILTRO) */}
               <div className="flex overflow-x-auto hide-scrollbar gap-2 mb-8 snap-x pb-2">
                 <button onClick={() => setSubAbaFilmes("sugeridos")} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all snap-center shrink-0 border ${subAbaFilmes === 'sugeridos' ? 'bg-blue-500/20 border-blue-500/50 text-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'bg-black/30 border-white/5 text-gray-500 hover:text-blue-400'}`}>🎬 Indicações</button>
                 <button onClick={() => setSubAbaFilmes("fila")} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all snap-center shrink-0 border ${subAbaFilmes === 'fila' ? 'bg-orange-500/20 border-orange-500/50 text-orange-400' : 'bg-black/30 border-white/5 text-gray-500 hover:text-white'}`}>🔥 Na Fila</button>
@@ -428,7 +472,6 @@ export default function PerfilUsuario({ params }) {
                 <button onClick={() => setSubAbaFilmes("diario")} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all snap-center shrink-0 border ${subAbaFilmes === 'diario' ? 'bg-pink-500/20 border-pink-500/50 text-pink-400' : 'bg-black/30 border-white/5 text-gray-500 hover:text-white'}`}>🍿 Diário Pessoal</button>
               </div>
 
-              {/* CONTEÚDO RENDERIZADO DENTRO DAS SUB-ABAS */}
               {subAbaFilmes === "sugeridos" && (
                 <div className="animate-fade-in-up">
                   {indicacoes.length > 0 ? (
@@ -483,7 +526,6 @@ export default function PerfilUsuario({ params }) {
             </div>
           )}
 
-          {/* AS OUTRAS ABAS PERMANECEM IGUAIS */}
           {abaAtiva === "avaliacoes" && (
             <div className="animate-fade-in-up space-y-6 max-w-4xl mx-auto">
               {comentarios.length > 0 ? comentarios.map(coment => {
@@ -507,11 +549,9 @@ export default function PerfilUsuario({ params }) {
           {abaAtiva === "mangas" && <AbaCultura itens={mangasCultura} categoria="Mangás & HQs" tipo="Mangá" cor="red" isOwner={isOwner} icon="🏮" />}
           {abaAtiva === "musicas" && <AbaMusica itens={musicasCultura} isOwner={isOwner} icon="🎵" />}
 
-          {/* MOTOR DE CULTURA (POP-UP) */}
+          {/* MOTOR DE CULTURA (POP-UP UNIFICADO) */}
           <GestorCultura usuarioLogado={usuarioLogado} recarregarDados={carregarPerfilDatabase} />
         </div>
-          {/* MOTOR DE CULTURA (POP-UP) */}
-     <GestorCultura usuarioLogado={usuarioLogado} recarregarDados={carregarPerfilDatabase} />
 
       </div>
     </main>
