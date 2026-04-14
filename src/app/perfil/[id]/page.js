@@ -12,7 +12,6 @@ import HeaderPerfil from "@/components/HeaderPerfil";
 import PainelInterativo from "@/components/PainelInterativo";
 import AbaCultura from "@/components/AbaCultura"; 
 import AbaMusica from "@/components/AbaMusica";
-import PlayerGlobal from "@/components/PlayerGlobal";
 import EstatisticasWrapped from "@/components/EstatisticasWrapped";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
@@ -513,9 +512,6 @@ export default function PerfilUsuario({ params }) {
         </div>
           {/* MOTOR DE CULTURA (POP-UP) */}
      <GestorCultura usuarioLogado={usuarioLogado} recarregarDados={carregarPerfilDatabase} />
-
-     {/* 🪄 O PLAYER GLOBAL - SEMPRE POR CIMA DE TUDO */}
-     <PlayerGlobal isOwner={isOwner} usuarioLogado={usuarioLogado} />
 
       </div>
     </main>
